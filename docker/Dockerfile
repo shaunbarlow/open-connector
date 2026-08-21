@@ -1,11 +1,20 @@
 FROM node:24-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json tsconfig.json vitest.config.ts ./
+
+# Dependency layer: manifests only, so source edits do not invalidate npm ci.
+# web/package.json is required here because the root package.json declares
+# "web" as an npm workspace; without it npm ci cannot resolve the workspace tree.
+COPY package.json package-lock.json ./
+COPY web/package.json ./web/package.json
+RUN npm ci --ignore-scripts
+
+# Source layers: change frequently, now rebuild without reinstalling.
+COPY tsconfig.json vitest.config.ts vitest.setup.ts ./
 COPY web ./web
 COPY src ./src
 COPY scripts ./scripts
 COPY examples ./examples
-RUN npm ci --ignore-scripts
+
 RUN npm run generate:catalog
 RUN npm run build
 RUN npm run build --workspace web
