@@ -316,14 +316,6 @@ export const betterStackTelemetryActions: ActionDefinition[] = [
     requiredScopes: [],
     inputSchema: searchLogsInput,
     outputSchema: searchLogsOutput,
-    agentNotes:
-      "Known bug: this action can fail with `provider_error` / `CLUSTER_DOESNT_EXIST` (\"Requested cluster " +
-      "'<table_name>_logs' not found\") on some sources/platforms because the resolved table reference is missing " +
-      "the required `t<team_id>_` prefix (confirmed on `open_telemetry` platform sources). If that happens, this is " +
-      "a table-naming bug in this action, not a credentials or scoping problem -- `ping` and `list_sources` succeeding " +
-      "on the same connection confirm the connection itself is fine. Workaround: fall back to `run_query` with " +
-      "`SELECT * FROM remote(t<team_id>_<table_name>_logs) ...`, using `team_id` and `table_name` from `list_sources`/" +
-      "`get_source` for this sourceId. See `run_query`'s agent notes for a worked example.",
   }),
   defineProviderAction(service, {
     name: "query_metrics",
@@ -332,13 +324,5 @@ export const betterStackTelemetryActions: ActionDefinition[] = [
     requiredScopes: [],
     inputSchema: queryMetricsInput,
     outputSchema: queryMetricsOutput,
-    agentNotes:
-      "Same known table-naming gap as `search_logs`: this action may fail with `provider_error` / " +
-      "`CLUSTER_DOESNT_EXIST` if the resolved table reference is missing the required `t<team_id>_` prefix " +
-      "(confirmed for `search_logs` on `open_telemetry` platform sources; assume the same risk here until proven " +
-      "otherwise for metrics tables specifically). If it happens, treat it as a table-naming bug in this action, not " +
-      "a credentials/scoping problem, and fall back to `run_query` with an explicit " +
-      "`t<team_id>_<table_name>_metrics_raw` / `_metrics_5m` / `_metrics_1h` table reference built from `list_sources`/" +
-      "`get_source` for this sourceId.",
   }),
 ];

@@ -30,6 +30,7 @@ export interface ResolvedBetterStackTelemetrySource {
   sourceId: string;
   name: string;
   tableName: string;
+  teamId: number;
   dataRegion: string;
   host: string;
 }
@@ -124,14 +125,34 @@ function resolveBetterStackTelemetrySourceFromAttributes(
   if (!dataRegion) {
     throw new ProviderRequestError(502, "better_stack_telemetry source did not include a data_region");
   }
+  const teamId = optionalInteger(attributes.team_id);
+  if (teamId === undefined) {
+    throw new ProviderRequestError(502, "better_stack_telemetry source did not include a team_id");
+  }
 
   return {
     sourceId,
     name: optionalString(attributes.name) ?? sourceId,
     tableName,
+    teamId,
     dataRegion,
     host: buildBetterStackTelemetryHost(dataRegion),
   };
+}
+
+/**
+ * Build a fully-qualified ClickHouse table reference for a resolved source, including the required
+ * `t<team_id>_` prefix. Better Stack's SQL API exposes each team's tables on shared regional clusters
+ * distinguished by this prefix; a plain `<table_name>_logs` reference resolves to no cluster at all and
+ * fails with `DB::Exception: Requested cluster '<table_name>_logs' not found (CLUSTER_DOESNT_EXIST)` even
+ * though the sourceId and credentials are correct. This is not documented by Better Stack; it was reverse
+ * engineered from a working `run_query` call and must be applied everywhere a source's tables are referenced.
+ */
+export function buildBetterStackTelemetryTableName(
+  source: Pick<ResolvedBetterStackTelemetrySource, "teamId" | "tableName">,
+  suffix: string,
+): string {
+  return `t${source.teamId}_${source.tableName}${suffix}`;
 }
 
 /** Add the derived `sql_api_host` field to a raw source resource's attributes, when data_region is present. */
@@ -334,10 +355,11 @@ async function searchBetterStackTelemetryLogs(
   const includeHistorical = input.includeHistorical !== false;
   const limit = clampRowLimit(input.limit, betterStackTelemetryDefaultLogLimit, betterStackTelemetryMaxLogLimit);
   const source = await resolveBetterStackTelemetrySource(context, sourceId);
-  const sourceTable = source.tableName;
+  const logsTable = buildBetterStackTelemetryTableName(source, "_logs");
+  const s3Table = buildBetterStackTelemetryTableName(source, "_s3");
 
-  const recentSelect = `SELECT dt, raw FROM remote(${sourceTable}_logs)`;
-  const historicalSelect = `SELECT dt, raw FROM s3Cluster(primary, ${sourceTable}_s3) WHERE _row_type = 1`;
+  const recentSelect = `SELECT dt, raw FROM remote(${logsTable})`;
+  const historicalSelect = `SELECT dt, raw FROM s3Cluster(primary, ${s3Table}) WHERE _row_type = 1`;
   const combinedSelect = includeHistorical ? `${recentSelect} UNION ALL ${historicalSelect}` : recentSelect;
 
   const conditions: string[] = [];
@@ -385,9 +407,12 @@ async function queryBetterStackTelemetryMetrics(
   const to = optionalString(input.to)?.trim();
   const limit = clampRowLimit(input.limit, betterStackTelemetryDefaultRowLimit, betterStackTelemetryMaxRowLimit);
   const source = await resolveBetterStackTelemetrySource(context, sourceId);
-  const sourceTable = source.tableName;
+  const metricsTable = buildBetterStackTelemetryTableName(
+    source,
+    granularity === "raw" ? "_metrics" : `_metrics_${granularity}`,
+  );
 
-  const table = `remote(${sourceTable}_metrics${granularity === "raw" ? "" : `_${granularity}`})`;
+  const table = `remote(${metricsTable})`;
 
   const conditions: string[] = [];
   if (metricName) {
