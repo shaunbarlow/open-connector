@@ -183,6 +183,14 @@ export type ActionDefinition = {
   outputSchema: JsonSchema;
   /** Related actions that are useful after this action completes. */
   followUpActions?: string[];
+  /**
+   * Freeform markdown notes for agent.md and other agent-facing docs: known
+   * gotchas, undocumented provider quirks, or worked examples that don't fit
+   * inputSchema/outputSchema descriptions. Rendered under its own "Agent
+   * Notes" section in the generated action guide. Omit when there is nothing
+   * beyond the schema and description worth calling out.
+   */
+  agentNotes?: string;
   /** Action ids that model a start/status/cancel async workflow. */
   asyncLifecycle?: {
     /** Action used to start an async provider operation. */

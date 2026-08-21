@@ -29,4 +29,17 @@ describe("renderActionMarkdown", () => {
     expect(markdown).toContain("Denied: Action is blocked.");
     expect(markdown).toContain("`runtime`: `block_match` via `github.delete_repository`");
   });
+
+  it("renders agent notes under their own heading when present", () => {
+    const markdown = renderActionMarkdown({ ...action, agentNotes: "Watch out for this known gotcha." });
+
+    expect(markdown).toContain("## Agent Notes");
+    expect(markdown).toContain("Watch out for this known gotcha.");
+  });
+
+  it("omits the agent notes heading when there are none", () => {
+    const markdown = renderActionMarkdown(action);
+
+    expect(markdown).not.toContain("## Agent Notes");
+  });
 });

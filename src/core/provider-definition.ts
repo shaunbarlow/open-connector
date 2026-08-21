@@ -12,6 +12,7 @@ export interface DefineProviderActionInput<TName extends string = string> {
   requiredScopes?: readonly string[];
   providerPermissions?: readonly string[];
   followUpActions?: readonly string[];
+  agentNotes?: string;
   asyncLifecycle?: ActionDefinition["asyncLifecycle"];
 }
 
@@ -37,6 +38,7 @@ export function defineProviderAction<const TName extends string>(
     inputSchema: input.inputSchema,
     outputSchema: input.outputSchema,
     followUpActions: input.followUpActions ? [...input.followUpActions] : undefined,
+    agentNotes: input.agentNotes,
     asyncLifecycle: input.asyncLifecycle,
   };
 }

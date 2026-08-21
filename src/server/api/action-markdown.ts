@@ -57,6 +57,7 @@ export function renderActionMarkdown(action: ActionDefinition, context: ActionMa
       ...describePolicy(context.policy),
       heading(2, "Current Connection"),
       ...describeConnection(context.connection),
+      ...describeAgentNotes(action.agentNotes),
       heading(2, "Notes For Agents"),
       list([
         textParagraph("Use the local runtime endpoint above; do not call provider APIs directly unless the user asks."),
@@ -74,6 +75,14 @@ export function renderActionMarkdown(action: ActionDefinition, context: ActionMa
     fences: true,
     extensions: [gfmToMarkdown()],
   });
+}
+
+function describeAgentNotes(notes: string | undefined): BlockContent[] {
+  const text = notes?.trim();
+  if (!text) {
+    return [];
+  }
+  return [heading(2, "Agent Notes"), ...markdownBlockContent(text)];
 }
 
 function describePolicy(policy: ActionPolicyDecision | undefined): BlockContent[] {
