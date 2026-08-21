@@ -285,6 +285,19 @@ export const betterStackTelemetryActions: ActionDefinition[] = [
     followUpActions: ["better_stack_telemetry.query_metrics"],
     inputSchema: listMetricsInput,
     outputSchema: listMetricsOutput,
+    agentNotes:
+      "For sources ingesting scraped Prometheus/OpenTelemetry metrics (platforms like `prometheus_scrape`, " +
+      "`prometheus`, or OTel metrics on an `open_telemetry` source), this action's response reflects Better " +
+      "Stack's fixed span-derived APM metric catalog (columns like `duration`, `category`, `db_statement`, " +
+      "`http_status`, `span_name`) and does NOT list the real metric names stored in that source's `_metrics` / " +
+      "`_metrics_5m` / `_metrics_1h` tables. Confirmed example: a `payments_prod` OTel source's real metrics " +
+      "table contains `grpc_server_duration_seconds_bucket`, `transaction_duration_bucket`, " +
+      "`temporal_activity_duration_bucket`, `http_response_times_bucket`, etc. -- entirely disjoint from what this " +
+      "action returns. This is a real gap between Better Stack's Telemetry API response and the SQL API's metrics " +
+      "table, not something this action can reconcile client-side. Before calling `query_metrics` for a scrape/OTel " +
+      "metrics source, discover real metric names first with `run_query`: " +
+      "`SELECT DISTINCT name FROM remote(t<team_id>_<table_name>_metrics_5m) LIMIT 100` (use `team_id`/`table_name` " +
+      "from `list_sources`/`get_source`). Only trust this action's output for span/APM-derived metrics.",
   }),
   defineProviderAction(service, {
     name: "list_source_groups",
@@ -324,5 +337,18 @@ export const betterStackTelemetryActions: ActionDefinition[] = [
     requiredScopes: [],
     inputSchema: queryMetricsInput,
     outputSchema: queryMetricsOutput,
+    agentNotes:
+      "Metrics ingested from Prometheus/OpenTelemetry scraping (histograms like `<name>_bucket`, and monotonic " +
+      "counters like `<name>_total`) are stored in their raw cumulative form, one row per label set including a " +
+      "`le` (bucket boundary) tag for histograms. Naively aggregating with `avgMerge`/`maxMerge` grouped only by " +
+      "non-`le` tags mixes rows across different bucket boundaries and produces meaningless results (observed: " +
+      "grouping `grpc_server_duration_seconds_bucket` by `rpc_method` alone yielded a fabricated '34,977s average " +
+      "latency' for a health-check RPC that never runs anywhere near that long). For `_bucket` metrics: include " +
+      "`tags['le']` in both selectExpressions and groupByExpressions, and compute rates/percentiles from the " +
+      "per-bucket counts across the full `le` series rather than averaging `value_avg`/`value_max` directly. For " +
+      "monotonic `_total` counters, aggregate with a rate-of-increase over time (e.g. compare `maxMerge(value_max)` " +
+      "across consecutive time buckets), not a plain sum or average of raw counter values. When in doubt, use " +
+      "`list_metrics`'s `aggregations` field for genuinely gauge-like span/APM metrics, or fall back to `run_query` " +
+      "for full control over histogram/counter math.",
   }),
 ];
