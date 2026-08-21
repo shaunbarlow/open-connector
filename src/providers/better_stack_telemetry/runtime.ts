@@ -2,8 +2,7 @@ import type { CredentialValidationResult } from "../../core/types.ts";
 import type { ProviderActionHandlers } from "../provider-runtime.ts";
 import type { ProviderFetch } from "../provider-runtime.ts";
 
-import { optionalRecord, optionalString, positiveInteger } from "../../core/cast.ts";
-import { assertPublicHttpUrl } from "../../core/request.ts";
+import { optionalInteger, optionalRecord, optionalString, positiveInteger } from "../../core/cast.ts";
 import { createProviderTimeout, ProviderRequestError, providerUserAgent } from "../provider-runtime.ts";
 
 const betterStackTelemetryRequestTimeoutMs = 30_000;
@@ -20,11 +19,19 @@ const sqlLeadingKeywordPattern = /^\s*(select|with)\b/i;
 const sqlFormatKeywordPattern = /\bformat\s+\w+/i;
 
 export interface BetterStackTelemetryContext {
-  host: string;
   authorization: string;
   apiToken: string;
   fetcher: ProviderFetch;
   signal?: AbortSignal;
+}
+
+/** A Better Stack Telemetry source resolved for use in SQL API queries. */
+export interface ResolvedBetterStackTelemetrySource {
+  sourceId: string;
+  name: string;
+  tableName: string;
+  dataRegion: string;
+  host: string;
 }
 
 type BetterStackTelemetryActionHandler = (
@@ -62,24 +69,89 @@ export const betterStackTelemetryActionHandlers: ProviderActionHandlers<
   },
 };
 
-export function normalizeBetterStackTelemetryHost(value: unknown): string {
-  const rawHost = optionalString(value)?.trim();
-  if (!rawHost) {
-    throw new ProviderRequestError(400, "host is required");
+/**
+ * Build a Better Stack Telemetry SQL API (ClickHouse HTTP) hostname from a
+ * source's `data_region`, for example `eu-nbg-2` -> `eu-nbg-2-connect.betterstackdata.com`.
+ *
+ * One SQL API username/password pair is valid across every regional endpoint
+ * for the team (confirmed against the Better Stack dashboard's own "Connect
+ * ClickHouse HTTP client" instructions, which list one set of credentials
+ * alongside multiple region-specific endpoints). Better Stack does not
+ * document this hostname pattern as a stable contract, so treat it as
+ * derived/best-effort and prefer discovery (list_sources/get_source) over
+ * hardcoding regions.
+ */
+export function buildBetterStackTelemetryHost(dataRegion: string): string {
+  const region = dataRegion.trim();
+  if (!region || !/^[a-z0-9][a-z0-9-]*$/i.test(region)) {
+    throw new ProviderRequestError(502, "better_stack_telemetry source returned an unexpected data_region value");
   }
-  // The credential field is a bare hostname (as shown in the Better Stack dashboard); build a URL to validate it.
-  const candidateUrl = rawHost.includes("://") ? rawHost : `https://${rawHost}`;
-  const parsed = assertPublicHttpUrl(candidateUrl, {
-    fieldName: "host",
-    createError: (message) => new ProviderRequestError(400, message),
-  });
-  if (parsed.protocol !== "https:") {
-    throw new ProviderRequestError(400, "host must resolve to an HTTPS endpoint");
+  return `${region}-connect.betterstackdata.com`;
+}
+
+/**
+ * Resolve a source ID to the SQL API table-name prefix and ClickHouse host it
+ * lives on, by reading `table_name` and `data_region` from the Telemetry API
+ * rather than requiring the caller to know or guess them.
+ */
+export async function resolveBetterStackTelemetrySource(
+  context: BetterStackTelemetryContext,
+  sourceId: string,
+): Promise<ResolvedBetterStackTelemetrySource> {
+  const payload = await requestBetterStackTelemetryApi(
+    context,
+    `/api/v2/sources/${encodeURIComponent(sourceId)}`,
+    {},
+    "execute",
+  );
+  const body = requireObjectPayload(payload, "better_stack_telemetry source response");
+  // Unlike the list endpoint, get-a-single-source returns the resource unwrapped, without a top-level data envelope.
+  const resource = optionalRecord(body.data) ?? body;
+  const attributes = requireObjectPayload(resource.attributes, "better_stack_telemetry source attributes");
+
+  return resolveBetterStackTelemetrySourceFromAttributes(sourceId, attributes);
+}
+
+function resolveBetterStackTelemetrySourceFromAttributes(
+  sourceId: string,
+  attributes: Record<string, unknown>,
+): ResolvedBetterStackTelemetrySource {
+  const tableName = optionalString(attributes.table_name)?.trim();
+  if (!tableName || !sourceTablePattern.test(tableName)) {
+    throw new ProviderRequestError(502, "better_stack_telemetry source returned an unexpected table_name value");
   }
-  if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) {
-    throw new ProviderRequestError(400, "host must be a bare hostname without path, query, or credentials");
+  const dataRegion = optionalString(attributes.data_region)?.trim();
+  if (!dataRegion) {
+    throw new ProviderRequestError(502, "better_stack_telemetry source did not include a data_region");
   }
-  return parsed.hostname;
+
+  return {
+    sourceId,
+    name: optionalString(attributes.name) ?? sourceId,
+    tableName,
+    dataRegion,
+    host: buildBetterStackTelemetryHost(dataRegion),
+  };
+}
+
+/** Add the derived `sql_api_host` field to a raw source resource's attributes, when data_region is present. */
+function enrichBetterStackTelemetrySourceResource(resource: unknown): unknown {
+  const record = optionalRecord(resource);
+  if (!record) {
+    return resource;
+  }
+  const attributes = optionalRecord(record.attributes);
+  const dataRegion = optionalString(attributes?.data_region)?.trim();
+  if (!attributes || !dataRegion) {
+    return resource;
+  }
+  let sqlApiHost: string;
+  try {
+    sqlApiHost = buildBetterStackTelemetryHost(dataRegion);
+  } catch {
+    return resource;
+  }
+  return { ...record, attributes: { ...attributes, sql_api_host: sqlApiHost } };
 }
 
 export function buildBetterStackTelemetryAuthorization(username: string, password: string): string {
@@ -89,28 +161,67 @@ export function buildBetterStackTelemetryAuthorization(username: string, passwor
 export async function validateBetterStackTelemetryCredential(
   context: BetterStackTelemetryContext,
 ): Promise<CredentialValidationResult> {
-  await executeBetterStackTelemetryQuery(context, "SELECT 1", "validate");
-  await requestBetterStackTelemetryApi(context, "/api/v2/sources", { per_page: 1 }, "validate");
+  // apiToken and username/password are validated against different Better Stack subsystems (Telemetry API vs.
+  // ClickHouse HTTP), and there is no static host to test against anymore: the SQL API host is derived per source
+  // from its data_region. Discover the first available source (validates apiToken) and use its region to build the
+  // host that proves username/password (validates the SQL API credential).
+  const firstSource = await findFirstBetterStackTelemetrySource(context, "validate");
+  if (firstSource) {
+    await executeBetterStackTelemetryQuery(context, "SELECT 1", "validate", firstSource.host);
+  }
+
+  const teamName = firstSource ? optionalString(firstSource.attributes.team_name) : undefined;
+  const teamId = firstSource ? optionalInteger(firstSource.attributes.team_id) : undefined;
 
   return {
     profile: {
-      accountId: `better_stack_telemetry:${context.host}`,
-      displayName: `Better Stack Telemetry (${context.host})`,
+      accountId: teamId !== undefined ? `better_stack_telemetry:team:${teamId}` : "better_stack_telemetry",
+      displayName: teamName ? `Better Stack Telemetry (${teamName})` : "Better Stack Telemetry",
     },
     grantedScopes: [],
     metadata: {
-      host: context.host,
+      validatedAgainstDataRegion: firstSource?.attributes.data_region,
     },
   };
 }
 
 async function pingBetterStackTelemetry(context: BetterStackTelemetryContext): Promise<Record<string, unknown>> {
-  await executeBetterStackTelemetryQuery(context, "SELECT 1", "execute");
-  await requestBetterStackTelemetryApi(context, "/api/v2/sources", { per_page: 1 }, "execute");
+  const firstSource = await findFirstBetterStackTelemetrySource(context, "execute");
+  if (!firstSource) {
+    return {
+      ok: true,
+      message:
+        "Better Stack Telemetry API token is reachable. No sources exist yet, so the ClickHouse SQL API host could not be derived or verified; create a source and retry, or call run_query with a sourceId once one exists.",
+    };
+  }
+
+  await executeBetterStackTelemetryQuery(context, "SELECT 1", "execute", firstSource.host);
   return {
     ok: true,
-    message: `Better Stack Telemetry SQL API connection and Telemetry API token for ${context.host} are both reachable.`,
+    message: `Better Stack Telemetry Telemetry API token is reachable, and the SQL API connection to ${firstSource.host} (derived from source "${firstSource.name}", data_region ${firstSource.dataRegion}) succeeded.`,
   };
+}
+
+/**
+ * Look up the first Better Stack Telemetry source visible to this credential, used to derive a ClickHouse host for
+ * connection checks that otherwise have no fixed host to target. Returns undefined when the team has zero sources.
+ */
+async function findFirstBetterStackTelemetrySource(
+  context: BetterStackTelemetryContext,
+  phase: "validate" | "execute",
+): Promise<(ResolvedBetterStackTelemetrySource & { attributes: Record<string, unknown> }) | undefined> {
+  const payload = await requestBetterStackTelemetryApi(context, "/api/v2/sources", { per_page: 1 }, phase);
+  const body = requireObjectPayload(payload, "better_stack_telemetry sources response");
+  const sources = requireArrayPayload(body.data, "better_stack_telemetry sources response data");
+  const first = sources[0];
+  if (!first) {
+    return undefined;
+  }
+  const resource = requireObjectPayload(first, "better_stack_telemetry source");
+  const attributes = requireObjectPayload(resource.attributes, "better_stack_telemetry source attributes");
+  const sourceId = optionalString(resource.id) ?? "";
+  const resolved = resolveBetterStackTelemetrySourceFromAttributes(sourceId, attributes);
+  return { ...resolved, attributes };
 }
 
 async function listBetterStackTelemetrySources(
@@ -128,7 +239,9 @@ async function listBetterStackTelemetrySources(
   );
   const body = requireObjectPayload(payload, "better_stack_telemetry sources response");
   return {
-    sources: requireArrayPayload(body.data, "better_stack_telemetry sources response data"),
+    sources: requireArrayPayload(body.data, "better_stack_telemetry sources response data").map(
+      enrichBetterStackTelemetrySourceResource,
+    ),
     pagination: readPagination(body.pagination),
   };
 }
@@ -147,7 +260,7 @@ async function getBetterStackTelemetrySource(
   // Unlike the list endpoint, get-a-single-source returns the resource unwrapped, without a top-level data envelope.
   const body = requireObjectPayload(payload, "better_stack_telemetry source response");
   return {
-    source: optionalRecord(body.data) ?? body,
+    source: enrichBetterStackTelemetrySourceResource(optionalRecord(body.data) ?? body),
   };
 }
 
@@ -196,14 +309,17 @@ async function runBetterStackTelemetryQuery(
   input: Record<string, unknown>,
   context: BetterStackTelemetryContext,
 ): Promise<Record<string, unknown>> {
+  const sourceId = requireField(input.sourceId, "sourceId");
   const sql = requireSqlStatement(input.sql);
   const maxRows = clampRowLimit(input.maxRows, betterStackTelemetryDefaultRowLimit, betterStackTelemetryMaxRowLimit);
-  const rows = await executeBetterStackTelemetryQuery(context, sql, "execute");
+  const source = await resolveBetterStackTelemetrySource(context, sourceId);
+  const rows = await executeBetterStackTelemetryQuery(context, sql, "execute", source.host);
 
   return {
     rows: rows.slice(0, maxRows),
     rowCount: Math.min(rows.length, maxRows),
     truncated: rows.length > maxRows,
+    resolvedSource: describeResolvedSource(source),
   };
 }
 
@@ -211,12 +327,14 @@ async function searchBetterStackTelemetryLogs(
   input: Record<string, unknown>,
   context: BetterStackTelemetryContext,
 ): Promise<Record<string, unknown>> {
-  const sourceTable = requireSourceTable(input.sourceTable);
+  const sourceId = requireField(input.sourceId, "sourceId");
   const searchText = optionalString(input.searchText)?.trim();
   const from = optionalString(input.from)?.trim();
   const to = optionalString(input.to)?.trim();
   const includeHistorical = input.includeHistorical !== false;
   const limit = clampRowLimit(input.limit, betterStackTelemetryDefaultLogLimit, betterStackTelemetryMaxLogLimit);
+  const source = await resolveBetterStackTelemetrySource(context, sourceId);
+  const sourceTable = source.tableName;
 
   const recentSelect = `SELECT dt, raw FROM remote(${sourceTable}_logs)`;
   const historicalSelect = `SELECT dt, raw FROM s3Cluster(primary, ${sourceTable}_s3) WHERE _row_type = 1`;
@@ -235,7 +353,7 @@ async function searchBetterStackTelemetryLogs(
   const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
 
   const sql = `SELECT dt, raw FROM (${combinedSelect})${whereClause} ORDER BY dt DESC LIMIT ${limit}`;
-  const rows = await executeBetterStackTelemetryQuery(context, sql, "execute");
+  const rows = await executeBetterStackTelemetryQuery(context, sql, "execute", source.host);
 
   const logs = rows.map((row) => {
     const dt = optionalString(row.dt) ?? "";
@@ -250,6 +368,7 @@ async function searchBetterStackTelemetryLogs(
   return {
     logs,
     rowCount: logs.length,
+    resolvedSource: describeResolvedSource(source),
   };
 }
 
@@ -257,7 +376,7 @@ async function queryBetterStackTelemetryMetrics(
   input: Record<string, unknown>,
   context: BetterStackTelemetryContext,
 ): Promise<Record<string, unknown>> {
-  const sourceTable = requireSourceTable(input.sourceTable);
+  const sourceId = requireField(input.sourceId, "sourceId");
   const granularity = requireGranularity(input.granularity);
   const selectExpressions = requireExpressionList(input.selectExpressions, "selectExpressions");
   const groupByExpressions = optionalExpressionList(input.groupByExpressions);
@@ -265,6 +384,8 @@ async function queryBetterStackTelemetryMetrics(
   const from = optionalString(input.from)?.trim();
   const to = optionalString(input.to)?.trim();
   const limit = clampRowLimit(input.limit, betterStackTelemetryDefaultRowLimit, betterStackTelemetryMaxRowLimit);
+  const source = await resolveBetterStackTelemetrySource(context, sourceId);
+  const sourceTable = source.tableName;
 
   const table = `remote(${sourceTable}_metrics${granularity === "raw" ? "" : `_${granularity}`})`;
 
@@ -282,12 +403,24 @@ async function queryBetterStackTelemetryMetrics(
   const groupByClause = groupByExpressions.length > 0 ? ` GROUP BY ${groupByExpressions.join(", ")}` : "";
 
   const sql = `SELECT ${selectExpressions.join(", ")} FROM ${table}${whereClause}${groupByClause} LIMIT ${limit}`;
-  const rows = await executeBetterStackTelemetryQuery(context, sql, "execute");
+  const rows = await executeBetterStackTelemetryQuery(context, sql, "execute", source.host);
 
   return {
     rows,
     rowCount: rows.length,
     table,
+    resolvedSource: describeResolvedSource(source),
+  };
+}
+
+/** Shape a resolved source into a compact, agent-visible summary of what host/table an action actually used. */
+function describeResolvedSource(source: ResolvedBetterStackTelemetrySource): Record<string, unknown> {
+  return {
+    sourceId: source.sourceId,
+    name: source.name,
+    tableName: source.tableName,
+    dataRegion: source.dataRegion,
+    sqlApiHost: source.host,
   };
 }
 
@@ -295,9 +428,10 @@ async function executeBetterStackTelemetryQuery(
   context: BetterStackTelemetryContext,
   sql: string,
   phase: "validate" | "execute",
+  host: string,
 ): Promise<Record<string, unknown>[]> {
   const statement = `${sql.trim().replace(/;+\s*$/, "")} FORMAT JSONEachRow`;
-  const url = new URL(`https://${context.host}/`);
+  const url = new URL(`https://${host}/`);
   url.searchParams.set("output_format_pretty_row_numbers", "0");
 
   const timeout = createProviderTimeout(context.signal, betterStackTelemetryRequestTimeoutMs);
@@ -514,14 +648,6 @@ function requireSqlStatement(value: unknown): string {
     throw new ProviderRequestError(400, "sql must be a single statement");
   }
   return sql;
-}
-
-function requireSourceTable(value: unknown): string {
-  const sourceTable = optionalString(value)?.trim();
-  if (!sourceTable || !sourceTablePattern.test(sourceTable)) {
-    throw new ProviderRequestError(400, "sourceTable must contain only letters, digits, and underscores");
-  }
-  return sourceTable;
 }
 
 function requireGranularity(value: unknown): "raw" | "5m" | "1h" {

@@ -5,10 +5,6 @@ import { defineProviderAction } from "../../core/provider-definition.ts";
 
 const service = "better_stack_telemetry";
 
-const sourceTableField = s.stringPattern("^[A-Za-z0-9_]+$", {
-  description:
-    "Source table identifier prefix shown for your Better Stack Telemetry source, for example 't123456_your_source'. Find it under Telemetry > Integrations > SQL API > Copy sample cURL, or from the data_sources field returned by the Get a single connection API.",
-});
 const fromField = s.dateTime("Inclusive start of the time range (ISO 8601). Defaults to no lower bound when omitted.");
 const toField = s.dateTime("Inclusive end of the time range (ISO 8601). Defaults to now when omitted.");
 const granularityField = s.stringEnum(
@@ -21,7 +17,22 @@ const pageField = s.positiveInteger("Page number to return.");
 const perPageField = s.positiveInteger("Number of records to return per page. Better Stack allows up to 50.", {
   maximum: 50,
 });
-const sourceIdField = s.nonEmptyString("The Better Stack Telemetry source ID.");
+const sourceIdField = s.nonEmptyString(
+  "The Better Stack Telemetry source ID (the numeric 'id' field from list_sources or get_source, not its name or table_name). The SQL API host and table_name prefix for this source are both resolved automatically from Telemetry API discovery; call list_sources first if you do not already have the ID.",
+);
+const resolvedSourceSchema = s.object(
+  "Which Better Stack Telemetry source, ClickHouse host, and table prefix this action actually queried, resolved from Telemetry API discovery rather than a fixed connection field.",
+  {
+    sourceId: s.string("The source ID that was queried."),
+    name: s.string("The source's human-readable name."),
+    tableName: s.string("The resolved table_name prefix used to build logs/metrics/s3 table references."),
+    dataRegion: s.string("The source's data_region, for example 'eu-nbg-2'."),
+    sqlApiHost: s.string(
+      "The ClickHouse SQL API host derived from dataRegion, for example 'eu-nbg-2-connect.betterstackdata.com'.",
+    ),
+  },
+  { required: ["sourceId", "name", "tableName", "dataRegion", "sqlApiHost"] },
+);
 const paginationSchema = s.object(
   "Pagination links returned by Better Stack, following the JSON:API convention.",
   {
@@ -56,6 +67,11 @@ const sourceAttributesSchema = s.looseObject("Attributes returned for a Better S
   metrics_retention: s.integer("Metric retention in days."),
   live_tail_pattern: s.nullableString("Live tail display pattern configured for this source."),
   data_region: s.string("Data region this source's data is stored in, for example 'eu-nbg-2'."),
+  sql_api_host: s.optional(
+    s.string(
+      "ClickHouse SQL API host derived from data_region, for example 'eu-nbg-2-connect.betterstackdata.com'. Better Stack does not return this field directly; it is computed here so you do not need to guess the per-region hostname pattern yourself. Actions that query the SQL API (run_query, search_logs, query_metrics) resolve and use this host automatically when you pass sourceId, so you normally do not need to read this field directly.",
+    ),
+  ),
   custom_bucket: s.nullable(customBucketSchema),
   vrl_transformation_logs: s.nullableString("Vector Remap Language transformation applied to ingested logs."),
   vrl_transformation_spans: s.nullableString("Vector Remap Language transformation applied to ingested spans."),
@@ -105,30 +121,34 @@ const sourceGroupSchema = s.object(
 );
 
 const pingOutput = s.actionOutput({
-  ok: s.boolean("Whether the SQL API connection and Telemetry API token both responded successfully."),
+  ok: s.boolean(
+    "Whether the Telemetry API token is reachable, and (when at least one source exists) whether the SQL API connection to that source's derived ClickHouse host also succeeded.",
+  ),
   message: s.string("Human-readable status message."),
 });
 
 const runQueryInput = s.actionInput(
   {
+    sourceId: sourceIdField,
     sql: s.nonEmptyString(
-      "A single read-only ClickHouse SQL statement to run against your Better Stack Telemetry SQL API connection. Must start with SELECT or WITH. Reference your own source tables, for example remote(t123456_your_source_logs) or s3Cluster(primary, t123456_your_source_s3). Do not include a FORMAT clause; JSONEachRow is applied automatically.",
+      "A single read-only ClickHouse SQL statement to run against the resolved source. Must start with SELECT or WITH. Reference this source's own tables using its resolved table_name prefix, for example remote(<table_name>_logs) or s3Cluster(primary, <table_name>_s3); call get_source first if you need the exact table_name string. Do not include a FORMAT clause; JSONEachRow is applied automatically.",
     ),
     maxRows: s.positiveInteger("Maximum number of result rows to return. Defaults to 1000, capped at 10000.", {
       maximum: 10000,
     }),
   },
-  ["sql"],
+  ["sourceId", "sql"],
 );
 const runQueryOutput = s.actionOutput({
   rows: s.array("Parsed result rows.", rowSchema),
   rowCount: s.nonNegativeInteger("Number of rows returned."),
   truncated: s.boolean("Whether the result was cut off at maxRows."),
+  resolvedSource: resolvedSourceSchema,
 });
 
 const searchLogsInput = s.actionInput(
   {
-    sourceTable: sourceTableField,
+    sourceId: sourceIdField,
     searchText: s.nonEmptyString(
       "Case-insensitive substring to search for within the raw log line. Omit to return the most recent logs unfiltered.",
     ),
@@ -141,7 +161,7 @@ const searchLogsInput = s.actionInput(
       maximum: 5000,
     }),
   },
-  ["sourceTable"],
+  ["sourceId"],
 );
 const logLineSchema = s.object(
   "A single Better Stack log line.",
@@ -155,14 +175,15 @@ const logLineSchema = s.object(
 const searchLogsOutput = s.actionOutput({
   logs: s.array("Matching log lines ordered from newest to oldest.", logLineSchema),
   rowCount: s.nonNegativeInteger("Number of log lines returned."),
+  resolvedSource: resolvedSourceSchema,
 });
 
 const queryMetricsInput = s.actionInput(
   {
-    sourceTable: sourceTableField,
+    sourceId: sourceIdField,
     granularity: granularityField,
     selectExpressions: s.array(
-      "SQL expressions for the SELECT list, evaluated against your metrics table. Must reference only columns and aggregate combinators that exist for your metrics, for example ['label(\\'route\\') AS route', 'avgMerge(value_avg) AS avg_value']. At least one expression is required.",
+      "SQL expressions for the SELECT list, evaluated against your metrics table. Must reference only columns and aggregate combinators that exist for your metrics, for example ['label(\\'route\\') AS route', 'avgMerge(value_avg) AS avg_value']. At least one expression is required. Call list_metrics first to see which columns and aggregations exist for this source.",
       s.nonEmptyString("A single SELECT expression, optionally aliased with AS."),
       { minItems: 1 },
     ),
@@ -179,12 +200,13 @@ const queryMetricsInput = s.actionInput(
       maximum: 10000,
     }),
   },
-  ["sourceTable", "granularity", "selectExpressions"],
+  ["sourceId", "granularity", "selectExpressions"],
 );
 const queryMetricsOutput = s.actionOutput({
   rows: s.array("Result rows produced by the supplied select and group by expressions.", rowSchema),
   rowCount: s.nonNegativeInteger("Number of rows returned."),
   table: s.string("The fully-qualified ClickHouse table function this query read from."),
+  resolvedSource: resolvedSourceSchema,
 });
 
 const listSourcesInput = s.actionInput({
@@ -232,16 +254,26 @@ export const betterStackTelemetryActions: ActionDefinition[] = [
   defineProviderAction(service, {
     name: "list_sources",
     description:
-      "List Better Stack Telemetry sources for your team, including each source's table_name used to build SQL API queries.",
+      "List Better Stack Telemetry sources for your team, including each source's id, table_name, and data_region. Pass a source's id as sourceId to run_query, search_logs, or query_metrics; those actions resolve table_name and the correct regional SQL API host for you, so you do not need to read table_name/data_region yourself in the normal case.",
     requiredScopes: [],
-    followUpActions: ["better_stack_telemetry.search_logs", "better_stack_telemetry.list_metrics"],
+    followUpActions: [
+      "better_stack_telemetry.search_logs",
+      "better_stack_telemetry.query_metrics",
+      "better_stack_telemetry.list_metrics",
+    ],
     inputSchema: listSourcesInput,
     outputSchema: listSourcesOutput,
   }),
   defineProviderAction(service, {
     name: "get_source",
-    description: "Get a single Better Stack Telemetry source by ID.",
+    description:
+      "Get a single Better Stack Telemetry source by ID, including its table_name, data_region, and derived sql_api_host.",
     requiredScopes: [],
+    followUpActions: [
+      "better_stack_telemetry.search_logs",
+      "better_stack_telemetry.query_metrics",
+      "better_stack_telemetry.run_query",
+    ],
     inputSchema: getSourceInput,
     outputSchema: getSourceOutput,
   }),

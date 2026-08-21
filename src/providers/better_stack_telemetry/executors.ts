@@ -16,7 +16,6 @@ import {
 import {
   betterStackTelemetryActionHandlers,
   buildBetterStackTelemetryAuthorization,
-  normalizeBetterStackTelemetryHost,
   validateBetterStackTelemetryCredential,
 } from "./runtime.ts";
 
@@ -28,7 +27,6 @@ export const executors: ProviderExecutors = defineProviderExecutors<BetterStackT
   async createContext(context: ExecutionContext, fetcher): Promise<BetterStackTelemetryContext> {
     const credential = await requireCustomCredential(context, service);
     return {
-      host: normalizeBetterStackTelemetryHost(credential.values.host),
       authorization: buildBetterStackTelemetryAuthorization(
         requireField(credential.values.username, "username"),
         requireField(credential.values.password, "password"),
@@ -44,7 +42,6 @@ export const credentialValidators: CredentialValidators = {
   async customCredential(input, { fetcher, signal }): Promise<CredentialValidationResult> {
     const guardedFetcher = createProviderFetch({ fetch: fetcher });
     const context: BetterStackTelemetryContext = {
-      host: normalizeBetterStackTelemetryHost(input.values.host),
       authorization: buildBetterStackTelemetryAuthorization(
         requireField(input.values.username, "username"),
         requireField(input.values.password, "password"),
