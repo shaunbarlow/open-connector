@@ -139,7 +139,7 @@ flowchart LR
 docker compose up
 ```
 
-此指令會拉取 `ghcr.io/oomol-lab/open-connector:latest`。若要改為從原始碼建置：
+此指令會拉取 `docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector:latest`。若要改為從原始碼建置：
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
@@ -202,7 +202,7 @@ OpenConnector 也可部署至 Fly.io，使用 Node Docker 執行階段，並將 
 
 ## Docker 映像檔（GHCR）
 
-使用 GitHub Packages（GHCR）上的預先建置映像檔執行 OpenConnector：`ghcr.io/oomol-lab/open-connector`。
+使用 GitHub Packages（GHCR）上的預先建置映像檔執行 OpenConnector：`docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector`。
 最新版本使用 `latest`；正式環境請固定具體的 release 版本號；若要使用最新的 `main` 建置則使用 `tip`。
 
 標籤、拉取及執行方式，請參閱 [docker-ghcr.md（英文）](docker-ghcr.md)。

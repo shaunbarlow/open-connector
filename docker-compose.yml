@@ -1,8 +1,10 @@
-# Runs the prebuilt image published to GHCR. To build from source instead, add
-# the build overlay: docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+# Runs the prebuilt image published to our Docker Hub account. Override
+# OPEN_CONNECTOR_IMAGE if your Docker Hub username/tag differs from the default
+# below. To build from source instead, add the build overlay:
+# docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
 services:
   connector:
-    image: ghcr.io/oomol-lab/open-connector:latest
+    image: ${OPEN_CONNECTOR_IMAGE:-docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector:latest}
     ports:
       - "3000:3000"
     volumes:

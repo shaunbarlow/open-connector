@@ -1,7 +1,9 @@
 # Build overlay for local development.
 #
 # Builds the image from docker/Dockerfile instead of pulling the published one,
-# and tags it as ghcr.io/oomol-lab/open-connector:latest (the name in docker-compose.yml).
+# and tags it with the same name/tag docker-compose.yml resolves to (by default
+# docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector:latest, override via
+# OPEN_CONNECTOR_IMAGE).
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
