@@ -215,7 +215,7 @@ Fly app 作成、volume、secret、deployment、custom domain、scaling につ�
 
 事前ビルドされた Docker イメージで OpenConnector を実行できます（GitHub Packages / GHCR）：
 `ghcr.io/oomol-lab/open-connector`。最新 release は `latest`、production では release version を固定、
-最新の `main` build は `tip` を使います。
+最新の `active` build は `tip` を使います。
 
 イメージの tag、pull、実行については [docker-ghcr.md（英語）](docker-ghcr.md) を参照してください。
 

@@ -4,22 +4,22 @@ name: Publish Docker Image
 # GitHub Packages container registry (GHCR) at ghcr.io/<owner>/<repo>.
 #
 # Triggers and tags:
-#   - push to main (this includes merged PRs): `tip` + the short commit hash
+#   - push to active (this includes merged PRs): `tip` + the short commit hash
 #   - published release:                       `latest` + the release version (e.g. v1.0.0)
 #
 # The image is multi-arch (linux/amd64 + linux/arm64). Each architecture is
 # built NATIVELY on its own Blacksmith runner (no QEMU emulation), pushed by
 # digest, and the two are then merged into a single multi-arch manifest per tag.
 #
-# main-branch pushes and releases never overlap: `push` ignores tag refs and
+# active-branch pushes and releases never overlap: `push` ignores tag refs and
 # publishing a release does not fire a branch `push`. See docs/docker-ghcr.md.
 on:
   push:
-    branches: [main]
+    branches: [active]
   release:
     types: [published]
 
-# One in-flight publish per ref. main pushes share a group so a newer commit
+# One in-flight publish per ref. active pushes share a group so a newer commit
 # cancels an older, still-running build — this keeps `tip` pointing at the most
 # recent commit. Releases use their own per-tag group and are never cancelled.
 concurrency:

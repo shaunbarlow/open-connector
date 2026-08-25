@@ -15,8 +15,8 @@ ghcr.io/oomol-lab/open-connector
 | ------------------- | ------------------------------------ | -------------------------------------------------------------- |
 | `latest`            | the newest published release         | you want the current stable runtime                            |
 | `<release-version>` | a specific release (immutable)       | you deploy to production and want a pinned, reproducible build |
-| `tip`               | the latest commit on `main`          | you want to try changes that are not released yet              |
-| `<short-sha>`       | a specific `main` commit (immutable) | you want to pin an exact pre-release build                     |
+| `tip`               | the latest commit on `active`        | you want to try changes that are not released yet              |
+| `<short-sha>`       | a specific `active` commit (immutable) | you want to pin an exact pre-release build                     |
 
 For production, pin a specific released version instead of `latest`.
 
@@ -129,7 +129,7 @@ The expected response is:
 
 ## How Images Are Published
 
-Images are built and pushed automatically, so the tags above stay current: every push to `main`
+Images are built and pushed automatically, so the tags above stay current: every push to `active`
 updates `tip` and adds the `<short-sha>` tag, and every published release adds `latest` and the
 release version. Each tag is a multi-arch manifest built natively for `linux/amd64` and
 `linux/arm64`. The build is defined in

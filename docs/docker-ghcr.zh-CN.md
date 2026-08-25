@@ -15,8 +15,8 @@ ghcr.io/oomol-lab/open-connector
 | ------------------- | -------------------------------- | -------------------------------------- |
 | `latest`            | 最新发布的 release               | 想要当前的稳定 runtime                 |
 | `<release-version>` | 某个具体 release（不可变）       | 部署到生产环境，需要固定、可复现的构建 |
-| `tip`               | `main` 上的最新 commit           | 想体验尚未发布的改动                   |
-| `<short-sha>`       | 某个具体 `main` commit（不可变） | 想固定到某个确切的预发布构建           |
+| `tip`               | `active` 上的最新 commit         | 想体验尚未发布的改动                   |
+| `<short-sha>`       | 某个具体 `active` commit（不可变） | 想固定到某个确切的预发布构建           |
 
 生产环境请固定到某个具体的 release 版本，不要使用 `latest`。
 
@@ -122,7 +122,7 @@ curl http://localhost:3000/health
 
 ## 镜像如何发布
 
-镜像会自动构建并推送，因此上面的标签始终保持最新：每次 push 到 `main` 会更新 `tip` 并新增 `<short-sha>`
+镜像会自动构建并推送，因此上面的标签始终保持最新：每次 push 到 `active` 会更新 `tip` 并新增 `<short-sha>`
 标签，每次发布 release 会新增 `latest` 和 release 版本号。每个标签都是为 `linux/amd64` 和 `linux/arm64`
 原生构建的多架构 manifest。构建定义见
 [`.github/workflows/publish-docker.yml`](../.github/workflows/publish-docker.yml)。

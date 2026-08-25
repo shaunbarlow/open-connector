@@ -239,7 +239,7 @@ domains, and scaling.
 
 Run OpenConnector from a prebuilt image on GitHub Packages (GHCR): `ghcr.io/oomol-lab/open-connector`. Use
 `latest` for the newest release, a pinned released version for production, or `tip` for the latest
-`main` build.
+`active` build.
 
 See [docs/docker-ghcr.md](docs/docker-ghcr.md) for tags, pulling, and running.
 

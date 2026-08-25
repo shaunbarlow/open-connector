@@ -226,7 +226,7 @@ Fly volume.
 
 Запускайте OpenConnector из готового образа в GitHub Packages (GHCR): `ghcr.io/oomol-lab/open-connector`.
 Используйте `latest` для новейшего release, закреплённую версию release для production или `tip` для
-последнего build из `main`.
+последнего build из `active`.
 
 О тегах образа, pull и запуске см. [docker-ghcr.md (на английском)](docker-ghcr.md).
 
