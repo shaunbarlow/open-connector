@@ -148,7 +148,7 @@ OpenConnector を Cloudflare の Workers、D1、R2、Web Console で起動する
 docker compose up
 ```
 
-これは `docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector:latest` を pull します。ソースからビルドする場合：
+これは `ghcr.io/oomol-lab/open-connector:latest` を pull します。ソースからビルドする場合：
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
@@ -214,7 +214,7 @@ Fly app 作成、volume、secret、deployment、custom domain、scaling につ�
 ## Docker イメージ（GHCR）
 
 事前ビルドされた Docker イメージで OpenConnector を実行できます（GitHub Packages / GHCR）：
-`docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector`。最新 release は `latest`、production では release version を固定、
+`ghcr.io/oomol-lab/open-connector`。最新 release は `latest`、production では release version を固定、
 最新の `main` build は `tip` を使います。
 
 イメージの tag、pull、実行については [docker-ghcr.md（英語）](docker-ghcr.md) を参照してください。

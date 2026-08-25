@@ -158,9 +158,7 @@ Start the runtime from the published image with Docker Compose:
 docker compose up
 ```
 
-This pulls the image published to our Docker Hub account (default
-`docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector:latest`; set
-`OPEN_CONNECTOR_IMAGE` to override). To build from source instead:
+This pulls `ghcr.io/oomol-lab/open-connector:latest`. To build from source instead:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
@@ -237,11 +235,11 @@ Fly volume.
 See [docs/fly-io.md](docs/fly-io.md) for app creation, volume setup, secrets, deployment, custom
 domains, and scaling.
 
-## Docker Image (Docker Hub)
+## Docker Image (GHCR)
 
-Run OpenConnector from a prebuilt image on our own Docker Hub account:
-`docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector`. Use `latest` for the newest release, a
-pinned released version for production, or `tip` for the latest `main` build.
+Run OpenConnector from a prebuilt image on GitHub Packages (GHCR): `ghcr.io/oomol-lab/open-connector`. Use
+`latest` for the newest release, a pinned released version for production, or `tip` for the latest
+`main` build.
 
 See [docs/docker-ghcr.md](docs/docker-ghcr.md) for tags, pulling, and running.
 
@@ -267,7 +265,7 @@ Issues and pull requests are welcome.
 - [Runtime API and MCP](docs/runtime-api.md)
 - [Fly.io deployment](docs/fly-io.md)
 - [Cloudflare deployment](docs/cloudflare.md)
-- [Docker image (Docker Hub)](docs/docker-ghcr.md)
+- [Docker image (GHCR)](docs/docker-ghcr.md)
 - [Configuration](docs/configuration.md)
 - [Credentials and OAuth](docs/credentials.md)
 - [Catalog format](docs/catalog-format.md)

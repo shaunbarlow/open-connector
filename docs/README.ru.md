@@ -158,7 +158,7 @@ flowchart LR
 docker compose up
 ```
 
-Это скачает `docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector:latest`. Чтобы собрать из исходников:
+Это скачает `ghcr.io/oomol-lab/open-connector:latest`. Чтобы собрать из исходников:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
@@ -224,7 +224,7 @@ Fly volume.
 
 ## Docker-образ (GHCR)
 
-Запускайте OpenConnector из готового образа в GitHub Packages (GHCR): `docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector`.
+Запускайте OpenConnector из готового образа в GitHub Packages (GHCR): `ghcr.io/oomol-lab/open-connector`.
 Используйте `latest` для новейшего release, закреплённую версию release для production или `tip` для
 последнего build из `main`.
 

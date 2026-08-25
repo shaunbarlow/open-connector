@@ -1,18 +1,13 @@
 [English](docker-ghcr.md) | [简体中文](docker-ghcr.zh-CN.md)
 
-# Docker Image (Docker Hub)
+# Docker Image (GHCR)
 
-This fork publishes a prebuilt Docker image to our own Docker Hub account (not the upstream
-project's GHCR registry), so you can run it without cloning the repository or building anything.
-The image is:
+OpenConnector ships a prebuilt Docker image on the GitHub Packages container registry (GHCR), so you
+can run it without cloning the repository or building anything. The image is:
 
 ```text
-docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector
+ghcr.io/oomol-lab/open-connector
 ```
-
-Replace `REPLACE_WITH_DOCKERHUB_USERNAME` with the Docker Hub username/org configured in the repo's
-`DOCKERHUB_USERNAME` Actions variable (see [How Images Are Published](#how-images-are-published)).
-If the image is private, sign in first (`docker login`) with an account that has pull access.
 
 ## Choose A Tag
 
@@ -27,17 +22,17 @@ For production, pin a specific released version instead of `latest`.
 
 ## Pull
 
-If the Docker Hub repository is public, no sign-in is required:
+The image is public, so no sign-in is required:
 
 ```bash
-docker pull docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector:latest
+docker pull ghcr.io/oomol-lab/open-connector:latest
 ```
 
-If the repository is private, or you get an `unauthorized` or `denied` error, sign in with a Docker
-Hub access token first:
+If you get an `unauthorized` or `denied` error, sign in with a GitHub token that has the
+`read:packages` scope:
 
 ```bash
-echo "$DOCKERHUB_TOKEN" | docker login -u <dockerhub-username> --password-stdin
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u <github-username> --password-stdin
 ```
 
 The image is multi-arch (`linux/amd64` + `linux/arm64`), so Docker automatically pulls the variant
@@ -69,7 +64,7 @@ docker run -d \
   -e OOMOL_CONNECT_ORIGIN="https://api.example.com" \
   -e OOMOL_CONNECT_ENCRYPTION_KEY="$OOMOL_CONNECT_ENCRYPTION_KEY" \
   -e OOMOL_CONNECT_ADMIN_TOKEN="$OOMOL_CONNECT_ADMIN_TOKEN" \
-  docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector:latest
+  ghcr.io/oomol-lab/open-connector:latest
 ```
 
 See [configuration.md](configuration.md) for the full environment variable reference and
@@ -86,7 +81,7 @@ OPEN_CONNECTOR_VERSION="<release-version>"
 
 docker run --rm \
   -e OOMOL_CONNECT_DATABASE_URL="postgresql://migration_user:password@db.example.com:5432/open_connector?sslmode=verify-full" \
-  "docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector:${OPEN_CONNECTOR_VERSION}" \
+  "ghcr.io/oomol-lab/open-connector:${OPEN_CONNECTOR_VERSION}" \
   migrate
 ```
 
@@ -138,16 +133,4 @@ Images are built and pushed automatically, so the tags above stay current: every
 updates `tip` and adds the `<short-sha>` tag, and every published release adds `latest` and the
 release version. Each tag is a multi-arch manifest built natively for `linux/amd64` and
 `linux/arm64`. The build is defined in
-[`.github/workflows/publish-docker.yml`](../.github/workflows/publish-docker.yml) and publishes to
-Docker Hub instead of GHCR.
-
-To enable publishing on this fork, set the following in the GitHub repo (Settings -> Secrets and
-variables -> Actions):
-
-- **Variable** `DOCKERHUB_USERNAME` — your Docker Hub username or organization. This becomes the
-  image path: `docker.io/<DOCKERHUB_USERNAME>/open-connector`.
-- **Secret** `DOCKERHUB_TOKEN` — a Docker Hub access token with Read & Write scope (Docker Hub ->
-  Account Settings -> Security -> Personal access tokens -> Generate new token). Do not use your
-  Docker Hub account password.
-
-Without both of these set, the `Publish Docker Image` workflow will fail to log in to Docker Hub.
+[`.github/workflows/publish-docker.yml`](../.github/workflows/publish-docker.yml).

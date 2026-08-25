@@ -1,16 +1,13 @@
 [English](docker-ghcr.md) | [简体中文](docker-ghcr.zh-CN.md)
 
-# Docker 镜像（Docker Hub）
+# Docker 镜像（GHCR）
 
-本 fork 将预构建的 Docker 镜像发布到我们自己的 Docker Hub 账号（而非上游项目的 GHCR），你无需克隆仓库或自己构建即可
+OpenConnector 在 GitHub Packages 容器镜像仓库（GHCR）提供了预构建的 Docker 镜像，你无需克隆仓库或自己构建即可
 运行 OpenConnector。镜像地址为：
 
 ```text
-docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector
+ghcr.io/oomol-lab/open-connector
 ```
-
-请将 `REPLACE_WITH_DOCKERHUB_USERNAME` 替换为仓库 `DOCKERHUB_USERNAME` Actions 变量中配置的 Docker Hub
-用户名/组织（参见本文末尾的“镜像如何发布”一节）。如果镜像是私有的，请先 `docker login`。
 
 ## 选择标签（Tag）
 
@@ -25,16 +22,16 @@ docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector
 
 ## 拉取
 
-如果 Docker Hub 仓库是 public 的，无需登录即可拉取：
+镜像是 public 的，无需登录即可拉取：
 
 ```bash
-docker pull docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector:latest
+docker pull ghcr.io/oomol-lab/open-connector:latest
 ```
 
-如果仓库是私有的，或遇到 `unauthorized` 或 `denied` 错误，请先用 Docker Hub access token 登录：
+如果遇到 `unauthorized` 或 `denied` 错误，用带 `read:packages` scope 的 GitHub token 登录：
 
 ```bash
-echo "$DOCKERHUB_TOKEN" | docker login -u <dockerhub-username> --password-stdin
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u <github-username> --password-stdin
 ```
 
 镜像是多架构的（`linux/amd64` + `linux/arm64`），Docker 会自动拉取与你机器匹配的那个变体——在 Intel/AMD
@@ -64,7 +61,7 @@ docker run -d \
   -e OOMOL_CONNECT_ORIGIN="https://api.example.com" \
   -e OOMOL_CONNECT_ENCRYPTION_KEY="$OOMOL_CONNECT_ENCRYPTION_KEY" \
   -e OOMOL_CONNECT_ADMIN_TOKEN="$OOMOL_CONNECT_ADMIN_TOKEN" \
-  docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector:latest
+  ghcr.io/oomol-lab/open-connector:latest
 ```
 
 完整环境变量参考见 [configuration.md](configuration.md)，连接 provider 见 [credentials.md](credentials.md)。
@@ -79,7 +76,7 @@ OPEN_CONNECTOR_VERSION="<release-version>"
 
 docker run --rm \
   -e OOMOL_CONNECT_DATABASE_URL="postgresql://migration_user:password@db.example.com:5432/open_connector?sslmode=verify-full" \
-  "docker.io/REPLACE_WITH_DOCKERHUB_USERNAME/open-connector:${OPEN_CONNECTOR_VERSION}" \
+  "ghcr.io/oomol-lab/open-connector:${OPEN_CONNECTOR_VERSION}" \
   migrate
 ```
 
@@ -128,15 +125,4 @@ curl http://localhost:3000/health
 镜像会自动构建并推送，因此上面的标签始终保持最新：每次 push 到 `main` 会更新 `tip` 并新增 `<short-sha>`
 标签，每次发布 release 会新增 `latest` 和 release 版本号。每个标签都是为 `linux/amd64` 和 `linux/arm64`
 原生构建的多架构 manifest。构建定义见
-[`.github/workflows/publish-docker.yml`](../.github/workflows/publish-docker.yml)，现已改为发布到 Docker Hub
-而非 GHCR。
-
-要在本 fork 上启用发布，需要在 GitHub 仓库中设置（Settings -> Secrets and variables -> Actions）：
-
-- **变量** `DOCKERHUB_USERNAME` — 你的 Docker Hub 用户名或组织。这会成为镜像路径：
-  `docker.io/<DOCKERHUB_USERNAME>/open-connector`。
-- **Secret** `DOCKERHUB_TOKEN` — 一个具有 Read & Write 权限的 Docker Hub access token（Docker Hub ->
-  Account Settings -> Security -> Personal access tokens -> Generate new token）。不要使用 Docker Hub
-  账户密码。
-
-如果这两项都没有设置，`Publish Docker Image` workflow 将无法登录 Docker Hub。
+[`.github/workflows/publish-docker.yml`](../.github/workflows/publish-docker.yml)。

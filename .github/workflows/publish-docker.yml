@@ -1,8 +1,7 @@
 name: Publish Docker Image
 
-# Build the OpenConnector image from docker/Dockerfile and publish it to our own
-# Docker Hub account at docker.io/<DOCKERHUB_USERNAME>/open-connector (not the
-# upstream project's GHCR registry).
+# Build the OpenConnector image from docker/Dockerfile and publish it to the
+# GitHub Packages container registry (GHCR) at ghcr.io/<owner>/<repo>.
 #
 # Triggers and tags:
 #   - push to main (this includes merged PRs): `tip` + the short commit hash
@@ -14,12 +13,6 @@ name: Publish Docker Image
 #
 # main-branch pushes and releases never overlap: `push` ignores tag refs and
 # publishing a release does not fire a branch `push`. See docs/docker-ghcr.md.
-#
-# Requires repo configuration (Settings -> Secrets and variables -> Actions):
-#   - Variable DOCKERHUB_USERNAME: your Docker Hub username or org
-#   - Secret   DOCKERHUB_TOKEN:    a Docker Hub access token (Account Settings ->
-#                                  Security -> Personal access tokens) with
-#                                  Read & Write scope
 on:
   push:
     branches: [main]
@@ -33,19 +26,18 @@ concurrency:
   group: publish-docker-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
-# Least privilege: only need to read the repo. Docker Hub push auth comes from
-# the DOCKERHUB_TOKEN secret, not from GITHUB_TOKEN, so no packages:write here.
+# Least privilege: read the repo, and write packages to push the image to GHCR.
 permissions:
   contents: read
+  packages: write
 
 env:
-  REGISTRY: docker.io
-  # docker.io/<DOCKERHUB_USERNAME>/open-connector — set DOCKERHUB_USERNAME as a
-  # repo/org Actions variable (Settings -> Secrets and variables -> Actions -> Variables).
-  IMAGE_NAME: ${{ vars.DOCKERHUB_USERNAME }}/open-connector
+  REGISTRY: ghcr.io
+  # ghcr.io/oomol-lab/open-connector — GHCR auto-links the package to this repository.
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # Build each architecture natively and push it to Docker Hub by digest (no tags yet).
+  # Build each architecture natively and push it to GHCR by digest (no tags yet).
   build:
     name: Build ${{ matrix.platform }}
     strategy:
@@ -73,12 +65,12 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
-      - name: Log in to Docker Hub
+      - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ vars.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Blacksmith's Docker builder keeps a per-Dockerfile layer cache on a
       # sticky disk (one per architecture), so no cache-from/cache-to is needed.
@@ -124,12 +116,12 @@ jobs:
           pattern: digests-*
           merge-multiple: true
 
-      - name: Log in to Docker Hub
+      - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ vars.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Same tag scheme as before: tip + short-sha on push, latest + version on release.
       - name: Compute tags
