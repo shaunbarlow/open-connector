@@ -11,9 +11,49 @@ export interface RequestOptions {
   bearerToken?: string;
 }
 
+/**
+ * Resolves an absolute-looking API path (e.g. "/api/providers") against an
+ * explicit `<base>` tag when one is present, instead of the browser's
+ * default behavior of always treating a leading "/" as relative to the
+ * origin root.
+ *
+ * Why this matters: when Claworc's control plane reverse-proxies this app at
+ * `/connector/*`, it injects `<base href="/connector/">` into the served
+ * HTML (see `writeProxyResponse` in the Claworc control plane) so relative
+ * asset URLs resolve under the proxy prefix. But `fetch("/api/...")` with a
+ * leading slash is an absolute path and browsers resolve it against the
+ * origin root regardless of any `<base>` tag, bypassing the proxy prefix
+ * entirely and hitting Claworc's own `/api/...` routes instead of this
+ * server's.
+ *
+ * This only rewrites the path when a `<base>` element actually exists in the
+ * document. Falling back to `document.baseURI` unconditionally would be
+ * wrong in the standalone (non-proxied) deployment: with no `<base>` tag,
+ * `document.baseURI` equals the current SPA route's URL (e.g.
+ * "/actions/123" for the `/actions/:actionId` route), and relative URL
+ * resolution only replaces the last path segment — "api/foo" against
+ * "/actions/123" resolves to "/actions/api/foo", not "/api/foo". Gating on
+ * an explicit `<base>` element keeps standalone behavior exactly as before
+ * (origin-relative) while making the proxied deployment correct.
+ *
+ * `document` is unavailable under the Node test environment this project's
+ * unit tests run in; falling back to the raw path there preserves existing
+ * test behavior (tests assert against literal "/api/..." strings).
+ */
+function resolveApiPath(path: string): string {
+  if (typeof document === "undefined") {
+    return path;
+  }
+  const base = document.querySelector("base")?.href;
+  if (!base) {
+    return path;
+  }
+  return new URL(path.replace(/^\//, ""), base).toString();
+}
+
 export async function apiGet<T>(path: string, options: RequestOptions = {}): Promise<T> {
   return readJson<T>(
-    await fetch(path, {
+    await fetch(resolveApiPath(path), {
       headers: headersFor(options),
       credentials: "same-origin",
     }),
@@ -22,7 +62,7 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
 
 export async function apiPost<T = unknown>(path: string, body: unknown, options: RequestOptions = {}): Promise<T> {
   return readJson<T>(
-    await fetch(path, {
+    await fetch(resolveApiPath(path), {
       method: "POST",
       headers: headersFor(options, true),
       credentials: "same-origin",
@@ -33,7 +73,7 @@ export async function apiPost<T = unknown>(path: string, body: unknown, options:
 
 export async function apiPut<T = unknown>(path: string, body: unknown, options: RequestOptions = {}): Promise<T> {
   return readJson<T>(
-    await fetch(path, {
+    await fetch(resolveApiPath(path), {
       method: "PUT",
       headers: headersFor(options, true),
       credentials: "same-origin",
@@ -44,7 +84,7 @@ export async function apiPut<T = unknown>(path: string, body: unknown, options: 
 
 export async function apiDelete<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
   return readJson<T>(
-    await fetch(path, {
+    await fetch(resolveApiPath(path), {
       method: "DELETE",
       headers: headersFor(options),
       credentials: "same-origin",
