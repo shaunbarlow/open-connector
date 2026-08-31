@@ -931,7 +931,11 @@ export class ConnectServer {
 
   private async updateRuntimeToken(context: Context, id: string): Promise<Response> {
     const body = await readJsonBody(context, policyRequestMaxBytes);
-    const token = await this.options.runtimeTokens.updateTokenPolicy(id, readTokenPolicy(body));
+    const name = optionalString(body.name);
+    const policy = readTokenPolicy(body);
+    const token = name
+      ? await this.options.runtimeTokens.updateTokenNameAndPolicy(id, name, policy)
+      : await this.options.runtimeTokens.updateTokenPolicy(id, policy);
     return token
       ? context.json(token)
       : jsonError(context, 404, "runtime_token_not_found", `Runtime token not found: ${id}.`);

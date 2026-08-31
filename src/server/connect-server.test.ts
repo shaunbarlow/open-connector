@@ -3838,6 +3838,25 @@ class MemoryRuntimeTokenStore implements IRuntimeTokenStore {
     return updated;
   }
 
+  async updateTokenNameAndPolicy(
+    id: string,
+    name: string,
+    policy: TokenPolicy,
+  ): Promise<RuntimeTokenRecord | undefined> {
+    const token = this.tokens.get(id);
+    if (!token) {
+      return undefined;
+    }
+    const updated = {
+      ...token,
+      name,
+      ...policy,
+      allowedConnections: policy.allowedConnections ?? [],
+    };
+    this.tokens.set(id, updated);
+    return updated;
+  }
+
   async revoke(id: string): Promise<boolean> {
     return this.tokens.delete(id);
   }

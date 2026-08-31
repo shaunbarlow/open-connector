@@ -408,6 +408,31 @@ class PostgresRuntimeTokenStore implements IRuntimeTokenStore {
     return row ? readRuntimeTokenRow(row) : undefined;
   }
 
+  async updateTokenNameAndPolicy(
+    id: string,
+    name: string,
+    policy: TokenPolicy,
+  ): Promise<RuntimeTokenRecord | undefined> {
+    const result = await this.pool.query<RuntimeRow>(
+      `
+        update runtime_tokens
+        set name = $1, allowed_actions = $2, blocked_actions = $3, allowed_proxies = $4, allowed_connections = $5
+        where id = $6 and revoked_at is null
+        returning id, name, token_hash, allowed_actions, blocked_actions, allowed_proxies, allowed_connections, created_at, last_used_at
+      `,
+      [
+        name,
+        JSON.stringify(policy.allowedActions),
+        JSON.stringify(policy.blockedActions),
+        JSON.stringify(policy.allowedProxies),
+        JSON.stringify(policy.allowedConnections ?? []),
+        id,
+      ],
+    );
+    const row = result.rows[0];
+    return row ? readRuntimeTokenRow(row) : undefined;
+  }
+
   async revoke(id: string): Promise<boolean> {
     const result = await this.pool.query("delete from runtime_tokens where id = $1", [id]);
     return (result.rowCount ?? 0) > 0;

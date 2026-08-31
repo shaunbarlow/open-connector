@@ -378,6 +378,31 @@ export class SqliteRuntimeTokenStore implements IRuntimeTokenStore {
     return row ? readRuntimeTokenRow(row) : undefined;
   }
 
+  async updateTokenNameAndPolicy(
+    id: string,
+    name: string,
+    policy: TokenPolicy,
+  ): Promise<RuntimeTokenRecord | undefined> {
+    const row = this.database
+      .prepare(
+        `
+        update runtime_tokens
+        set name = ?, allowed_actions = ?, blocked_actions = ?, allowed_proxies = ?, allowed_connections = ?
+        where id = ? and revoked_at is null
+        returning id, name, token_hash, allowed_actions, blocked_actions, allowed_proxies, allowed_connections, created_at, last_used_at
+      `,
+      )
+      .get(
+        name,
+        JSON.stringify(policy.allowedActions),
+        JSON.stringify(policy.blockedActions),
+        JSON.stringify(policy.allowedProxies),
+        JSON.stringify(policy.allowedConnections ?? []),
+        id,
+      );
+    return row ? readRuntimeTokenRow(row) : undefined;
+  }
+
   async revoke(id: string): Promise<boolean> {
     const result = this.database.prepare("delete from runtime_tokens where id = ?").run(id);
     return result.changes > 0;

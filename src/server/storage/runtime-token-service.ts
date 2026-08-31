@@ -36,6 +36,11 @@ export interface IRuntimeTokenStore {
   list(): Promise<RuntimeTokenRecord[]>;
   findByHash(tokenHash: string): Promise<RuntimeTokenRecord | undefined>;
   updatePolicy(id: string, policy: TokenPolicy): Promise<RuntimeTokenRecord | undefined>;
+  updateTokenNameAndPolicy(
+    id: string,
+    name: string,
+    policy: TokenPolicy,
+  ): Promise<RuntimeTokenRecord | undefined>;
   revoke(id: string): Promise<boolean>;
   markUsed(id: string, usedAt: string): Promise<void>;
 }
@@ -90,6 +95,15 @@ export class RuntimeTokenService {
 
   async updateTokenPolicy(id: string, policy: TokenPolicy): Promise<RuntimeTokenSummary | undefined> {
     const record = await this.store.updatePolicy(id, policy);
+    return record ? summarizeRuntimeToken(record) : undefined;
+  }
+
+  async updateTokenNameAndPolicy(
+    id: string,
+    name: string,
+    policy: TokenPolicy,
+  ): Promise<RuntimeTokenSummary | undefined> {
+    const record = await this.store.updateTokenNameAndPolicy(id, name, policy);
     return record ? summarizeRuntimeToken(record) : undefined;
   }
 

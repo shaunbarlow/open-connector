@@ -11,6 +11,7 @@ describe("RuntimeTokenService", () => {
       list: vi.fn(async () => []),
       findByHash: vi.fn(),
       updatePolicy: vi.fn(),
+      updateTokenNameAndPolicy: vi.fn(),
       revoke: vi.fn(async () => false),
       markUsed: vi.fn(),
     };
@@ -38,6 +39,7 @@ describe("RuntimeTokenService", () => {
       list: vi.fn(async () => [record]),
       findByHash: vi.fn(async () => record),
       updatePolicy: vi.fn(),
+      updateTokenNameAndPolicy: vi.fn(),
       revoke: vi.fn(async () => false),
       markUsed: vi.fn(),
     };
@@ -71,6 +73,7 @@ describe("RuntimeTokenService", () => {
       list: vi.fn(async () => [record]),
       findByHash: vi.fn(async () => record),
       updatePolicy: vi.fn(),
+      updateTokenNameAndPolicy: vi.fn(),
       revoke: vi.fn(async () => false),
       markUsed: vi.fn(async () => {
         throw new Error("D1_ERROR: network connection lost");
@@ -155,6 +158,25 @@ class MemoryRuntimeTokenStore implements IRuntimeTokenStore {
     }
     const updated = {
       ...token,
+      ...policy,
+      allowedConnections: policy.allowedConnections ?? [],
+    };
+    this.tokens.set(id, updated);
+    return updated;
+  }
+
+  async updateTokenNameAndPolicy(
+    id: string,
+    name: string,
+    policy: TokenPolicy,
+  ): Promise<RuntimeTokenRecord | undefined> {
+    const token = this.tokens.get(id);
+    if (!token) {
+      return undefined;
+    }
+    const updated = {
+      ...token,
+      name,
       ...policy,
       allowedConnections: policy.allowedConnections ?? [],
     };
