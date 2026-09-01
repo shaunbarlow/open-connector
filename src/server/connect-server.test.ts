@@ -44,6 +44,7 @@ import { registerStaticRoutes } from "./api/static-routes.ts";
 import { ConnectServer } from "./connect-server.ts";
 import { TransitFileService } from "./files/transit-files.ts";
 import { AesGcmSecretCodec } from "./secrets/secret-codec.ts";
+import { ShortLinkService } from "./short-link-service.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./storage/runtime-store.ts";
 import { RuntimeTokenService } from "./storage/runtime-token-service.ts";
 
@@ -134,6 +135,46 @@ afterEach(() => {
 });
 
 describe("ConnectServer", () => {
+  it("redirects a valid short link token and leaves it resolvable for repeat opens", async () => {
+    const shortLinks = new ShortLinkService({
+      store: new MemoryShortLinkStore(),
+      publicOrigin: "http://localhost:3000",
+    });
+    const app = createTestServer([], { shortLinks }).createApp();
+    const link = await shortLinks.create("https://example.com/auth?api_key=***&api_sig=abc123");
+    const token = link.split("/r/")[1];
+
+    const first = await app.request(`/r/${token}`, { redirect: "manual" });
+    expect(first.status).toBe(302);
+    expect(first.headers.get("location")).toBe("https://example.com/auth?api_key=***&api_sig=abc123");
+
+    const second = await app.request(`/r/${token}`, { redirect: "manual" });
+    expect(second.status).toBe(302);
+  });
+
+  it("returns 404 for an unknown or expired short link token", async () => {
+    const app = createTestServer([]).createApp();
+
+    const response = await app.request("/r/does-not-exist");
+    expect(response.status).toBe(404);
+  });
+
+  it("serves short links without requiring a bearer token even when auth is configured", async () => {
+    const shortLinks = new ShortLinkService({
+      store: new MemoryShortLinkStore(),
+      publicOrigin: "http://localhost:3000",
+    });
+    const app = createTestServer([], {
+      shortLinks,
+      auth: { adminToken: "admin-secret" },
+    }).createApp();
+    const link = await shortLinks.create("https://example.com/auth?api_key=***");
+    const token = link.split("/r/")[1];
+
+    const response = await app.request(`/r/${token}`, { redirect: "manual" });
+    expect(response.status).toBe(302);
+  });
+
   it("rejects connections for providers unavailable in the current runtime", async () => {
     const app = createTestServer([catalogOnlyProvider]).createApp();
 
@@ -3508,6 +3549,7 @@ interface CreateTestServerOptions {
   uploadTransitFile?: (request: Request) => Promise<TransitFileUpload>;
   secretCodec?: ISecretCodec;
   allowedCustomOAuth?: string[];
+  shortLinks?: ShortLinkService;
 }
 
 function createTestServer(providers: ProviderDefinition[], options: CreateTestServerOptions = {}): ConnectServer {
@@ -3542,6 +3584,9 @@ function createTestServer(providers: ProviderDefinition[], options: CreateTestSe
       maxBytes: 1024 * 1024,
     });
 
+  const shortLinks =
+    options.shortLinks ??
+    new ShortLinkService({ store: new MemoryShortLinkStore(), publicOrigin: "http://localhost:3000" });
   const actionRunner = new ActionRunner({
     catalog,
     providerLoader,
@@ -3549,6 +3594,7 @@ function createTestServer(providers: ProviderDefinition[], options: CreateTestSe
     runs,
     transitFiles,
     actionPolicy: options.actionPolicy,
+    shortLinks,
     logger: options.logger,
   });
   const staticRoot = typeof options.staticRoot === "string" ? options.staticRoot : undefined;
@@ -3567,6 +3613,7 @@ function createTestServer(providers: ProviderDefinition[], options: CreateTestSe
     }),
     actions: actionRunner,
     idempotency,
+    shortLinks,
     transitFiles,
     uploadTransitFile: options.uploadTransitFile,
     runtimeTokens,
@@ -3806,6 +3853,26 @@ class MemoryOAuthStateStore implements IOAuthStateStore {
     const value = this.states.get(state);
     this.states.delete(state);
     return value;
+  }
+}
+
+class MemoryShortLinkStore {
+  private readonly records = new Map<string, { url: string; expiresAt: string }>();
+
+  async add(record: { token: string; url: string; createdAt: string; expiresAt: string }): Promise<void> {
+    this.records.set(record.token, { url: record.url, expiresAt: record.expiresAt });
+  }
+
+  async resolve(token: string): Promise<string | undefined> {
+    const record = this.records.get(token);
+    if (!record) {
+      return undefined;
+    }
+    if (Date.parse(record.expiresAt) <= Date.now()) {
+      this.records.delete(token);
+      return undefined;
+    }
+    return record.url;
   }
 }
 

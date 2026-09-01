@@ -300,6 +300,24 @@ default connection, a non-empty grant is an exact stable-ID allowlist, and ungra
 return `403 connection_not_allowed` before lookup. Pure `no_auth` proxies do not require a connection
 grant.
 
+## Short Links
+
+- `GET /r/:token`
+
+Some provider auth flows (e.g. Remember The Milk's frob-based desktop flow) sign the authorization
+URL with credentials baked into query parameters, such as `api_key` and `api_sig`. Returning that
+URL as-is to an agent risks a host redacting it as a secret before a human ever gets to open it,
+since query parameters that look like API keys or signatures are exactly what generic secret
+redaction targets.
+
+When a provider action calls `ExecutionContext.createShortLink(url)`, the runtime stores `url`
+server-side and returns an opaque `<publicOrigin>/r/<token>` link instead. `GET /r/:token` is
+unauthenticated (no bearer token required) and 302-redirects to the stored URL, or `404`s once the
+link has expired (15 minutes by default) or was never issued. The link is not single-use: opening it
+more than once (retries, link previews, a slow human) still redirects correctly until it expires.
+Treat an issued short link as equivalent in sensitivity to the URL it points to — anyone who opens it
+reaches the same destination.
+
 ## Local Admin Endpoints
 
 These endpoints power the Web Console, examples, and setup scripts:

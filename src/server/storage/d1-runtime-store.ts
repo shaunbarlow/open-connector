@@ -15,6 +15,7 @@ import type { RuntimeDatabase } from "./runtime-database.ts";
 import type { IRuntimePolicyStore, RuntimePolicyRecord } from "./runtime-policy-store.ts";
 import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage, RunLogWriteResult } from "./runtime-store.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord } from "./runtime-token-service.ts";
+import type { IShortLinkStore, ShortLinkRecord } from "./short-link-store.ts";
 
 import { parseRuntimeActionHttpResult } from "../api/runtime-api.ts";
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
@@ -36,6 +37,7 @@ export class D1RuntimeDatabase implements RuntimeDatabase {
   readonly runtimePolicyStore: D1RuntimePolicyStore;
   readonly runLogStore: D1RunLogStore;
   readonly idempotencyStore: D1IdempotencyStore;
+  readonly shortLinkStore: D1ShortLinkStore;
 
   constructor(database: D1DatabaseBinding, options: D1RuntimeDatabaseOptions = {}) {
     const secretCodec = options.secretCodec ?? new PlainTextSecretCodec();
@@ -46,6 +48,7 @@ export class D1RuntimeDatabase implements RuntimeDatabase {
     this.runtimePolicyStore = new D1RuntimePolicyStore(database);
     this.runLogStore = new D1RunLogStore(database, options.runLimit ?? DEFAULT_RUN_LIMIT);
     this.idempotencyStore = new D1IdempotencyStore(database, secretCodec);
+    this.shortLinkStore = new D1ShortLinkStore(database, secretCodec);
   }
 }
 
@@ -461,6 +464,37 @@ export class D1IdempotencyStore implements IIdempotencyStore {
       )
       .run();
     return (result.meta.changes ?? 0) > 0;
+  }
+}
+
+export class D1ShortLinkStore implements IShortLinkStore {
+  private readonly database: D1DatabaseBinding;
+  private readonly secretCodec: ISecretCodec;
+
+  constructor(database: D1DatabaseBinding, secretCodec: ISecretCodec) {
+    this.database = database;
+    this.secretCodec = secretCodec;
+  }
+
+  async add(record: ShortLinkRecord): Promise<void> {
+    await this.database
+      .prepare(
+        `
+        insert into short_links (token, url, created_at, expires_at)
+        values (?, ?, ?, ?)
+      `,
+      )
+      .bind(record.token, await this.secretCodec.encode(record.url), record.createdAt, record.expiresAt)
+      .run();
+  }
+
+  async resolve(token: string): Promise<string | undefined> {
+    await this.database.prepare("delete from short_links where expires_at <= ?").bind(new Date().toISOString()).run();
+    const row = await this.database
+      .prepare("select url from short_links where token = ?")
+      .bind(token)
+      .first<RuntimeRow>();
+    return row ? await this.secretCodec.decode(readString(row, "url")) : undefined;
   }
 }
 

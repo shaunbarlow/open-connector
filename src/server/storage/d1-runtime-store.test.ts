@@ -159,6 +159,38 @@ describe("D1RuntimeDatabase", () => {
     });
   });
 
+  it("resolves a short link and keeps it available for repeat opens", async () => {
+    const database = new D1RuntimeDatabase(new SqliteD1Database());
+
+    await database.shortLinkStore.add({
+      token: "token-1",
+      url: "https://example.com/auth?api_key=secret",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    });
+
+    await expect(database.shortLinkStore.resolve("token-1")).resolves.toBe("https://example.com/auth?api_key=secret");
+    await expect(database.shortLinkStore.resolve("token-1")).resolves.toBe("https://example.com/auth?api_key=secret");
+    await expect(database.shortLinkStore.resolve("missing")).resolves.toBeUndefined();
+  });
+
+  it("stores short link URLs through the secret codec", async () => {
+    const d1 = new SqliteD1Database();
+    const database = new D1RuntimeDatabase(d1, {
+      secretCodec: new AesGcmSecretCodec("local-test-key"),
+    });
+
+    await database.shortLinkStore.add({
+      token: "token-1",
+      url: "https://example.com/auth?api_key=secret",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    });
+
+    expect(d1.value("short_links", "token", "token-1", "url")).not.toContain("secret");
+    await expect(database.shortLinkStore.resolve("token-1")).resolves.toBe("https://example.com/auth?api_key=secret");
+  });
+
   it("stores runtime token hashes and supports verification and revocation", async () => {
     const database = new D1RuntimeDatabase(new SqliteD1Database());
     const tokens = new RuntimeTokenService(database.runtimeTokenStore);
@@ -539,6 +571,7 @@ class SqliteD1Database implements D1DatabaseBinding {
     this.database.exec(
       readFileSync(new URL("../../../migrations/0011_runtime_token_connection_scope.sql", import.meta.url), "utf8"),
     );
+    this.database.exec(readFileSync(new URL("../../../migrations/0012_short_links.sql", import.meta.url), "utf8"));
   }
 
   prepare(query: string): D1PreparedStatementBinding {
@@ -550,10 +583,10 @@ class SqliteD1Database implements D1DatabaseBinding {
   }
 
   value(
-    table: "connections" | "oauth_client_configs" | "oauth_states" | "idempotency_records",
-    keyColumn: "service" | "state" | "key_hash",
+    table: "connections" | "oauth_client_configs" | "oauth_states" | "idempotency_records" | "short_links",
+    keyColumn: "service" | "state" | "key_hash" | "token",
     key: string,
-    valueColumn: "value" | "response_value" = "value",
+    valueColumn: "value" | "response_value" | "url" = "value",
   ): string {
     const row = this.database.prepare(`select ${valueColumn} from ${table} where ${keyColumn} = ?`).get(key) as
       | Record<string, string>

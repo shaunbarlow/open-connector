@@ -21,6 +21,7 @@ export const executors: ProviderExecutors = defineProviderExecutors<RtmActionCon
       fetcher,
       signal: context.signal,
       updateCredential: context.updateCredential,
+      createShortLink: context.createShortLink,
     };
   },
 });

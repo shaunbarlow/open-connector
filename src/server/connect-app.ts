@@ -14,6 +14,7 @@ import { OAuthCredentialRefreshService } from "../oauth/oauth-credential-refresh
 import { OAuthFlowService } from "../oauth/oauth-flow-service.ts";
 import { ActionRunner } from "./actions/action-runner.ts";
 import { ConnectServer } from "./connect-server.ts";
+import { ShortLinkService } from "./short-link-service.ts";
 import { RuntimeTokenService } from "./storage/runtime-token-service.ts";
 
 export interface ConnectAppOptions {
@@ -59,6 +60,10 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
     store: options.runtimeDatabase.connectionStore,
     logger: options.logger,
   });
+  const shortLinks = new ShortLinkService({
+    store: options.runtimeDatabase.shortLinkStore,
+    publicOrigin: options.publicOrigin,
+  });
   const actions = new ActionRunner({
     catalog: options.catalog,
     providerLoader: options.providerLoader,
@@ -66,6 +71,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
     runs: options.runtimeDatabase.runLogStore,
     transitFiles: options.transitFiles,
     actionPolicy: options.actionPolicy,
+    shortLinks,
     logger: options.logger,
   });
 
@@ -84,6 +90,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
       }),
       actions,
       idempotency: options.runtimeDatabase.idempotencyStore,
+      shortLinks,
       transitFiles: options.transitFiles,
       uploadTransitFile: options.uploadTransitFile,
       runtimeTokens,

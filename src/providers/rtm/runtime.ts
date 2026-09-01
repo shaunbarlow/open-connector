@@ -15,6 +15,7 @@ export interface RtmActionContext {
   fetcher: typeof fetch;
   signal?: AbortSignal;
   updateCredential?: ExecutionContext["updateCredential"];
+  createShortLink?: ExecutionContext["createShortLink"];
 }
 
 type RtmActionHandler = (input: Record<string, unknown>, context: RtmActionContext) => Promise<unknown>;
@@ -285,8 +286,10 @@ export const rtmActionHandlers: ProviderActionHandlers<"rtm", RtmActionHandler> 
       method: "rtm.auth.getFrob",
     });
     const frob = requiredString(rsp.frob, "frob", (message) => new ProviderRequestError(502, message));
+    const signedAuthUrl = buildRtmAuthUrl(context, { perms, frob });
+    const authUrl = context.createShortLink ? await context.createShortLink(signedAuthUrl) : signedAuthUrl;
     return {
-      authUrl: buildRtmAuthUrl(context, { perms, frob }),
+      authUrl,
       frob,
       perms,
     };

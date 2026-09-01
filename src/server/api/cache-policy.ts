@@ -42,6 +42,7 @@ function isCatalogResponse(method: string, path: string): boolean {
 function isRuntimeResponsePath(path: string): boolean {
   return (
     path === "/health" ||
+    path.startsWith("/r/") ||
     path === "/openapi.json" ||
     path === "/docs" ||
     path.startsWith("/docs/") ||

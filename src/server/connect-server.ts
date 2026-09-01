@@ -8,6 +8,7 @@ import type { LocalAuthOptions } from "./api/auth.ts";
 import type { RuntimeActionHttpResult } from "./api/runtime-api.ts";
 import type { ITransitFileService, TransitFileUpload } from "./files/transit-file-store.ts";
 import type { Logger } from "./logger.ts";
+import type { ShortLinkService } from "./short-link-service.ts";
 import type { IIdempotencyStore } from "./storage/idempotency-store.ts";
 import type { IRuntimePolicyStore } from "./storage/runtime-policy-store.ts";
 import type { RunLogCaller, RunLogListInput } from "./storage/runtime-store.ts";
@@ -70,6 +71,7 @@ export interface IConnectServerOptions {
   runtimeTokens: RuntimeTokenService;
   actions: ActionRunner;
   idempotency: IIdempotencyStore;
+  shortLinks?: ShortLinkService;
   transitFiles: ITransitFileService;
   uploadTransitFile?: (request: Request) => Promise<TransitFileUpload>;
   staticRoot?: string;
@@ -124,6 +126,7 @@ export class ConnectServer {
       }
     });
     app.get("/health", (context) => context.json({ ok: true }));
+    app.get("/r/:token", (context) => this.resolveShortLink(context, context.req.param("token")));
     if (this.options.compressApiResponses !== false) {
       // Compress dashboard JSON responses. Scoped to /api/* so the streaming
       // /mcp transport and /v1/proxy pass-through are never buffered/re-encoded.
@@ -986,6 +989,14 @@ export class ConnectServer {
 
   private async deleteOAuthConfig(context: Context, service: string): Promise<Response> {
     return this.writeOAuthResult(context, this.options.oauthClientConfigs.deleteConfig(service));
+  }
+
+  private async resolveShortLink(context: Context, token: string): Promise<Response> {
+    const url = await this.options.shortLinks?.resolve(token);
+    if (!url) {
+      return notFound(context);
+    }
+    return context.redirect(url, 302);
   }
 
   private async completeOAuth(context: Context): Promise<Response> {

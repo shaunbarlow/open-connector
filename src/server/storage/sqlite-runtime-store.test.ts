@@ -50,6 +50,7 @@ describe("SqliteRuntimeDatabase", () => {
       "0009_runtime_token_proxy.sql",
       "0010_connection_revision.sql",
       "0011_runtime_token_connection_scope.sql",
+      "0012_short_links.sql",
     ];
     expect(entries.filter((entry) => entry.message === "sqlite migration started")).toEqual(
       migrations.map((migration) => ({ fields: { migration }, message: "sqlite migration started" })),
@@ -679,6 +680,54 @@ describe("SqliteRuntimeDatabase", () => {
     legacy.close();
   });
 
+  it("resolves a short link repeatedly until it expires", async () => {
+    const databasePath = await createDatabasePath();
+    const database = new SqliteRuntimeDatabase(databasePath);
+
+    await database.shortLinkStore.add({
+      token: "token-1",
+      url: "https://example.com/auth?api_key=***",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    });
+    await database.shortLinkStore.add({
+      token: "expired",
+      url: "https://example.com/auth?api_key=stale",
+      createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+    });
+
+    await expect(database.shortLinkStore.resolve("token-1")).resolves.toBe("https://example.com/auth?api_key=***");
+    await expect(database.shortLinkStore.resolve("token-1")).resolves.toBe("https://example.com/auth?api_key=***");
+    await expect(database.shortLinkStore.resolve("expired")).resolves.toBeUndefined();
+    await expect(database.shortLinkStore.resolve("missing")).resolves.toBeUndefined();
+    database.close();
+  });
+
+  it("stores short link URLs through the secret codec", async () => {
+    const databasePath = await createDatabasePath();
+    const encrypted = new SqliteRuntimeDatabase(databasePath, {
+      secretCodec: new AesGcmSecretCodec("local-test-key"),
+    });
+    await encrypted.shortLinkStore.add({
+      token: "token-1",
+      url: "https://example.com/auth?api_key=super-secret",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    });
+    const inspected = new DatabaseSync(databasePath);
+    const stored = inspected.prepare("select url from short_links where token = ?").get("token-1") as {
+      url: string;
+    };
+    expect(stored.url).toMatch(/^enc:v1:/);
+    expect(stored.url).not.toContain("auth?api_key");
+    inspected.close();
+    await expect(encrypted.shortLinkStore.resolve("token-1")).resolves.toBe(
+      "https://example.com/auth?api_key=super-secret",
+    );
+    encrypted.close();
+  });
+
   it("stores runtime token hashes and supports verification and revocation", async () => {
     const databasePath = await createDatabasePath();
     const database = new SqliteRuntimeDatabase(databasePath);
@@ -864,6 +913,12 @@ describe("SqliteRuntimeDatabase", () => {
       expiresAt: claim.expiresAt,
     });
     await database.runLogStore.add(createRun("run-1", "2026-06-30T00:00:00.000Z"));
+    await database.shortLinkStore.add({
+      token: "token-rotation",
+      url: "https://example.com/auth?api_key=***",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    });
     await database.rotateSecretCodec(new AesGcmSecretCodec("new-key"));
     database.close();
 
@@ -872,6 +927,7 @@ describe("SqliteRuntimeDatabase", () => {
     });
     await expect(withOldKey.connectionStore.get("github", "default")).rejects.toThrow();
     await expect(withOldKey.idempotencyStore.claim({ ...claim, claimId: "claim-2" })).rejects.toThrow();
+    await expect(withOldKey.shortLinkStore.resolve("token-rotation")).rejects.toThrow();
     withOldKey.close();
 
     const withNewKey = new SqliteRuntimeDatabase(databasePath, {
@@ -895,6 +951,9 @@ describe("SqliteRuntimeDatabase", () => {
       kind: "completed",
       response: successResponse({ token: "rotated-idempotency-secret" }),
     });
+    await expect(withNewKey.shortLinkStore.resolve("token-rotation")).resolves.toBe(
+      "https://example.com/auth?api_key=***",
+    );
     withNewKey.close();
   });
 });

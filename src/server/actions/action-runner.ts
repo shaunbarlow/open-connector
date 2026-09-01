@@ -4,6 +4,7 @@ import type { ActionPolicyDecision, ActionPolicyService, ActionPolicySnapshot } 
 import type { ExecutionContext, ExecutionResult, TransitFileWriter } from "../../core/types.ts";
 import type { IProviderLoader } from "../../providers/provider-loader.ts";
 import type { Logger } from "../logger.ts";
+import type { ShortLinkService } from "../short-link-service.ts";
 import type { IRunLogStore, RunLog, RunLogCaller, RunLogListInput, RunLogPage } from "../storage/runtime-store.ts";
 
 import { ConnectionError, defaultConnectionName } from "../../connection-service.ts";
@@ -17,6 +18,7 @@ export interface ActionRunnerOptions {
   runs: IRunLogStore;
   transitFiles?: TransitFileWriter;
   actionPolicy?: ActionPolicyService;
+  shortLinks?: ShortLinkService;
   logger?: Logger;
 }
 
@@ -212,6 +214,10 @@ export class ActionRunner {
     };
     if (this.options.transitFiles) {
       context.transitFiles = this.options.transitFiles;
+    }
+    if (this.options.shortLinks) {
+      const shortLinks = this.options.shortLinks;
+      context.createShortLink = (url, linkOptions) => shortLinks.create(url, linkOptions);
     }
     return context;
   }

@@ -14,6 +14,7 @@ import type { RuntimeDatabase } from "./runtime-database.ts";
 import type { IRuntimePolicyStore, RuntimePolicyRecord } from "./runtime-policy-store.ts";
 import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage, RunLogWriteResult } from "./runtime-store.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord } from "./runtime-token-service.ts";
+import type { IShortLinkStore, ShortLinkRecord } from "./short-link-store.ts";
 
 import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -63,6 +64,11 @@ interface RotatedStateSecret {
   value: string;
 }
 
+interface RotatedShortLinkSecret {
+  token: string;
+  value: string;
+}
+
 /**
  * Shared SQLite connection for local runtime state.
  */
@@ -74,6 +80,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
   readonly runtimePolicyStore: SqliteRuntimePolicyStore;
   readonly runLogStore: SqliteRunLogStore;
   readonly idempotencyStore: SqliteIdempotencyStore;
+  readonly shortLinkStore: SqliteShortLinkStore;
 
   private readonly database: DatabaseSync;
   private readonly secretCodec: ISecretCodec;
@@ -89,6 +96,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
     this.runtimePolicyStore = new SqliteRuntimePolicyStore(this.database);
     this.runLogStore = new SqliteRunLogStore(this.database, options.runLimit ?? DEFAULT_RUN_LIMIT);
     this.idempotencyStore = new SqliteIdempotencyStore(this.database, this.secretCodec);
+    this.shortLinkStore = new SqliteShortLinkStore(this.database, this.secretCodec);
   }
 
   close(): void {
@@ -105,11 +113,13 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
     );
     const oauthStates = await readRotatedStateSecrets(this.database, this.secretCodec, nextSecretCodec);
     const idempotencyResponses = await readRotatedIdempotencySecrets(this.database, this.secretCodec, nextSecretCodec);
+    const shortLinks = await readRotatedShortLinkSecrets(this.database, this.secretCodec, nextSecretCodec);
     runInTransaction(this.database, () => {
       writeRotatedConnectionSecrets(this.database, connections);
       writeRotatedServiceSecrets(this.database, "oauth_client_configs", oauthConfigs);
       writeRotatedStateSecrets(this.database, oauthStates);
       writeRotatedIdempotencySecrets(this.database, idempotencyResponses);
+      writeRotatedShortLinkSecrets(this.database, shortLinks);
     });
   }
 
@@ -122,6 +132,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
       delete from runtime_policy;
       delete from runs;
       delete from idempotency_records;
+      delete from short_links;
     `);
   }
 
@@ -535,6 +546,35 @@ export class SqliteIdempotencyStore implements IIdempotencyStore {
   }
 }
 
+export class SqliteShortLinkStore implements IShortLinkStore {
+  private readonly database: DatabaseSync;
+  private readonly secretCodec: ISecretCodec;
+
+  constructor(database: DatabaseSync, secretCodec: ISecretCodec) {
+    this.database = database;
+    this.secretCodec = secretCodec;
+  }
+
+  async add(record: ShortLinkRecord): Promise<void> {
+    this.database
+      .prepare(
+        `
+        insert into short_links (token, url, created_at, expires_at)
+        values (?, ?, ?, ?)
+      `,
+      )
+      .run(record.token, await this.secretCodec.encode(record.url), record.createdAt, record.expiresAt);
+  }
+
+  async resolve(token: string): Promise<string | undefined> {
+    this.database.prepare("delete from short_links where expires_at <= ?").run(new Date().toISOString());
+    const row = this.database.prepare("select url from short_links where token = ?").get(token) as
+      | RuntimeRow
+      | undefined;
+    return row ? await this.secretCodec.decode(readString(row, "url")) : undefined;
+  }
+}
+
 export class SqliteRunLogStore implements IRunLogStore {
   private readonly database: DatabaseSync;
   private readonly limit: number;
@@ -789,6 +829,27 @@ function writeRotatedIdempotencySecrets(database: DatabaseSync, responses: Rotat
   const statement = database.prepare("update idempotency_records set response_value = ? where key_hash = ?");
   for (const response of responses) {
     statement.run(response.value, response.keyHash);
+  }
+}
+
+async function readRotatedShortLinkSecrets(
+  database: DatabaseSync,
+  currentCodec: ISecretCodec,
+  nextCodec: ISecretCodec,
+): Promise<RotatedShortLinkSecret[]> {
+  const rows = database.prepare("select token, url from short_links").all();
+  return await Promise.all(
+    rows.map(async (row) => ({
+      token: readString(row, "token"),
+      value: await nextCodec.encode(await currentCodec.decode(readString(row, "url"))),
+    })),
+  );
+}
+
+function writeRotatedShortLinkSecrets(database: DatabaseSync, links: RotatedShortLinkSecret[]): void {
+  const statement = database.prepare("update short_links set url = ? where token = ?");
+  for (const link of links) {
+    statement.run(link.value, link.token);
   }
 }
 

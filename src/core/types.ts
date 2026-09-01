@@ -320,6 +320,22 @@ export interface ExecutionContext {
    * credential writes for this execution (e.g. no active connection).
    */
   updateCredential?(patch: Record<string, string>): Promise<void>;
+  /**
+   * Register a short-lived public redirect for `url` and return an opaque
+   * link (served by this runtime) that 302s to it when opened.
+   *
+   * Useful for provider auth flows whose signed authorization URL embeds
+   * sensitive-looking query parameters (API key, request signature, etc.):
+   * returning that URL directly to a calling agent risks a host redacting it
+   * before a human can open it. Returning this opaque link instead avoids
+   * that without weakening the host's redaction. The link expires (default
+   * ~15 minutes) but is not single-use, since link previews, retries, or a
+   * slow human may need more than one request before the real destination is
+   * reached. Treat it as equivalent in sensitivity to `url` itself while it
+   * is live, since whoever opens it reaches the same destination. Undefined
+   * when the runtime does not support redirect links.
+   */
+  createShortLink?(url: string, options?: { ttlMs?: number }): Promise<string>;
   /** Optional local temporary file storage for actions that produce downloadable files. */
   transitFiles?: TransitFileWriter;
   /** Optional cancellation signal propagated from the HTTP request or runner. */

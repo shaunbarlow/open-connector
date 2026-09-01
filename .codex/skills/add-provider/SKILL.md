@@ -118,6 +118,7 @@ Create or update `executors.ts` with `ProviderExecutors`:
 - Use `ProviderRequestError` for provider API failures that should become stable execution errors.
 - Use shared request helpers such as `setSearchParams`, `readProviderJson`, and `readProviderText` when they fit existing patterns.
 - Pass `context.signal` and transit file support through provider contexts when the provider needs cancellation or file output.
+- When an action must return a signed/credentialed URL (e.g. an API key baked into query params for a pre-OAuth auth flow), call `context.createShortLink(url)` when available and return that instead of the raw URL. Hosts commonly redact secret-looking query params from tool output, which can silently break the raw URL before a human opens it; a short link avoids that without weakening redaction. Fall back to the raw URL when `createShortLink` is undefined.
 
 Provider-local runtime files are appropriate when a provider has multiple API areas or a meaningful shared protocol. Do not add local mini-frameworks, schema facades, or action adapter layers just to reduce edit size.
 

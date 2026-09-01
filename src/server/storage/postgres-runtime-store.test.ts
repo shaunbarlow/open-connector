@@ -44,7 +44,11 @@ describe("PostgreSQL migrations with PGlite", () => {
       await expect(assertPostgresSchemaReady(pool)).resolves.toBeUndefined();
       await expect(migratePostgresDatabase({ pool })).resolves.toBeUndefined();
       await expect(pool.query("select name from runtime_migrations order by name")).resolves.toMatchObject({
-        rows: [{ name: "0010_runtime.sql" }, { name: "0011_runtime_token_connection_scope.sql" }],
+        rows: [
+          { name: "0010_runtime.sql" },
+          { name: "0011_runtime_token_connection_scope.sql" },
+          { name: "0012_short_links.sql" },
+        ],
       });
 
       await pool.query("delete from runtime_migrations where name = $1", ["0010_runtime.sql"]);
@@ -107,6 +111,13 @@ describe("PostgresRuntimeDatabase with PGlite", () => {
       state: "state-1",
       createdAt: "2026-06-30T00:00:00.000Z",
     });
+    const shortLinkUrl = "https://example.com/auth?api_key=leaked-key&api_sig=leaked-sig";
+    await database.shortLinkStore.add({
+      token: "token-1",
+      url: shortLinkUrl,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    });
     await database.close();
 
     database = await PostgresRuntimeDatabase.open(testServer.url);
@@ -121,6 +132,8 @@ describe("PostgresRuntimeDatabase with PGlite", () => {
     });
     await expect(database.oauthStateStore.take("state-1")).resolves.toMatchObject({ state: "state-1" });
     await expect(database.oauthStateStore.take("state-1")).resolves.toBeUndefined();
+    await expect(database.shortLinkStore.resolve("token-1")).resolves.toBe(shortLinkUrl);
+    await expect(database.shortLinkStore.resolve("token-1")).resolves.toBe(shortLinkUrl);
   });
 
   it("preserves connection identity and rejects stale revisions", async () => {
@@ -293,6 +306,12 @@ describe("PostgresRuntimeDatabase with PGlite", () => {
     };
     await database.idempotencyStore.claim(claim);
     await database.idempotencyStore.complete({ ...claim, response: successResponse({ secret: "response" }) });
+    await database.shortLinkStore.add({
+      token: "token-rotation",
+      url: "https://example.com/auth?api_key=***",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    });
     await database.rotateSecretCodec(new AesGcmSecretCodec("new-key"));
     await database.close();
 
@@ -300,6 +319,7 @@ describe("PostgresRuntimeDatabase with PGlite", () => {
       secretCodec: new AesGcmSecretCodec("old-key"),
     });
     await expect(withOldKey.connectionStore.get("github", "default")).rejects.toThrow();
+    await expect(withOldKey.shortLinkStore.resolve("token-rotation")).rejects.toThrow();
     await withOldKey.close();
 
     database = await PostgresRuntimeDatabase.open(testServer.url, {
@@ -318,6 +338,9 @@ describe("PostgresRuntimeDatabase with PGlite", () => {
       kind: "completed",
       response: successResponse({ secret: "response" }),
     });
+    await expect(database.shortLinkStore.resolve("token-rotation")).resolves.toBe(
+      "https://example.com/auth?api_key=***",
+    );
 
     await database.resetRuntimeData();
     await expect(database.connectionStore.list()).resolves.toEqual([]);

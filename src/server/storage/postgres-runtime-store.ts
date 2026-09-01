@@ -14,6 +14,7 @@ import type { RuntimeDatabase } from "./runtime-database.ts";
 import type { IRuntimePolicyStore, RuntimePolicyRecord } from "./runtime-policy-store.ts";
 import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage, RunLogWriteResult } from "./runtime-store.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord } from "./runtime-token-service.ts";
+import type { IShortLinkStore, ShortLinkRecord } from "./short-link-store.ts";
 import type { PoolClient } from "pg";
 
 import { Pool } from "pg";
@@ -40,6 +41,7 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
   readonly runtimePolicyStore: IRuntimePolicyStore;
   readonly runLogStore: IRunLogStore;
   readonly idempotencyStore: IIdempotencyStore;
+  readonly shortLinkStore: IShortLinkStore;
 
   private readonly pool: Pool;
   private readonly secretCodec: ISecretCodec;
@@ -54,6 +56,7 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
     this.runtimePolicyStore = new PostgresRuntimePolicyStore(pool);
     this.runLogStore = new PostgresRunLogStore(pool, options.runLimit ?? DEFAULT_RUN_LIMIT);
     this.idempotencyStore = new PostgresIdempotencyStore(pool, this.secretCodec);
+    this.shortLinkStore = new PostgresShortLinkStore(pool, this.secretCodec);
   }
 
   static async open(
@@ -93,6 +96,7 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
         delete from runtime_policy;
         delete from runs;
         delete from idempotency_records;
+        delete from short_links;
       `);
     });
   }
@@ -100,7 +104,7 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
   async rotateSecretCodec(nextSecretCodec: ISecretCodec): Promise<void> {
     await runInTransaction(this.pool, async (client) => {
       await client.query(
-        "lock table connections, oauth_client_configs, oauth_states, idempotency_records in access exclusive mode",
+        "lock table connections, oauth_client_configs, oauth_states, idempotency_records, short_links in access exclusive mode",
       );
 
       const connectionRows = await client.query<RuntimeRow>("select service, connection_name, value from connections");
@@ -158,6 +162,17 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
           response.value,
           response.keyHash,
         ]);
+      }
+
+      const shortLinkRows = await client.query<RuntimeRow>("select token, url from short_links");
+      const shortLinks = await Promise.all(
+        shortLinkRows.rows.map(async (row) => ({
+          token: readString(row, "token"),
+          value: await nextSecretCodec.encode(await this.secretCodec.decode(readString(row, "url"))),
+        })),
+      );
+      for (const shortLink of shortLinks) {
+        await client.query("update short_links set url = $1 where token = $2", [shortLink.value, shortLink.token]);
       }
     });
   }
@@ -547,6 +562,33 @@ class PostgresIdempotencyStore implements IIdempotencyStore {
       ],
     );
     return (result.rowCount ?? 0) > 0;
+  }
+}
+
+class PostgresShortLinkStore implements IShortLinkStore {
+  private readonly pool: Pool;
+  private readonly secretCodec: ISecretCodec;
+
+  constructor(pool: Pool, secretCodec: ISecretCodec) {
+    this.pool = pool;
+    this.secretCodec = secretCodec;
+  }
+
+  async add(record: ShortLinkRecord): Promise<void> {
+    await this.pool.query(
+      `
+        insert into short_links (token, url, created_at, expires_at)
+        values ($1, $2, $3, $4)
+      `,
+      [record.token, await this.secretCodec.encode(record.url), record.createdAt, record.expiresAt],
+    );
+  }
+
+  async resolve(token: string): Promise<string | undefined> {
+    await this.pool.query("delete from short_links where expires_at <= $1", [new Date().toISOString()]);
+    const result = await this.pool.query<RuntimeRow>("select url from short_links where token = $1", [token]);
+    const row = result.rows[0];
+    return row ? await this.secretCodec.decode(readString(row, "url")) : undefined;
   }
 }
 

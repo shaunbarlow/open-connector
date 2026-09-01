@@ -88,7 +88,7 @@ export const rtmActions: ActionDefinition[] = [
   defineProviderAction(service, {
     name: "start_auth",
     description:
-      "Start the Remember The Milk authorization flow. Returns a signed authUrl to open in a browser; after the user authorizes, call complete_auth with the returned frob.",
+      "Start the Remember The Milk authorization flow. Returns an authUrl to open in a browser; after the user authorizes, call complete_auth with the returned frob. authUrl embeds a signed api_key/api_sig, so on runtimes that support it this is a short-lived redirect link rather than the raw signed URL, so it survives credential redaction when relayed through an agent.",
     requiredScopes: [],
     inputSchema: s.object(
       "Input parameters for starting Remember The Milk authorization.",
@@ -101,7 +101,9 @@ export const rtmActions: ActionDefinition[] = [
       { optional: ["perms"] },
     ),
     outputSchema: s.object("The authorization URL and frob to complete the flow.", {
-      authUrl: s.url("Signed Remember The Milk authorization URL. Open this in a browser and authorize the app."),
+      authUrl: s.url(
+        "URL to open in a browser and authorize the app. This may be a short-lived redirect link rather than the raw Remember The Milk URL; treat it as sensitive either way, since opening it grants access.",
+      ),
       frob: s.string("Frob to pass to complete_auth after the user authorizes."),
       perms: s.string("Permission level requested."),
     }),
