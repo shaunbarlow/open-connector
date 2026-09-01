@@ -257,6 +257,38 @@ describe("ConnectionService", () => {
     });
   });
 
+  it("merges a partial update into an existing custom credential connection", async () => {
+    const store = new MemoryConnectionStore();
+    const service = createService([customCredentialProvider], { store });
+    await service.connectWithCustomCredential("database", {
+      values: {
+        host: "localhost",
+        password: "old-secret",
+      },
+    });
+
+    const updated = await service.updateCustomCredentialValues("database", "default", {
+      password: "new-secret",
+    });
+
+    expect(updated).toBe(true);
+    await expect(service.getCredential("database")).resolves.toMatchObject({
+      authType: "custom_credential",
+      values: {
+        host: "localhost",
+        password: "new-secret",
+      },
+    });
+  });
+
+  it("rejects updateCustomCredentialValues for a missing connection", async () => {
+    const service = createService([customCredentialProvider]);
+
+    await expect(service.updateCustomCredentialValues("database", "default", { password: "x" })).rejects.toMatchObject({
+      code: "connection_not_found",
+    });
+  });
+
   it("verifies credentials before storing them when a provider exposes a validator", async () => {
     const validators: CredentialValidators = {
       async apiKey(input) {

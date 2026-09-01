@@ -6,7 +6,7 @@ import type { IProviderLoader } from "../../providers/provider-loader.ts";
 import type { Logger } from "../logger.ts";
 import type { IRunLogStore, RunLog, RunLogCaller, RunLogListInput, RunLogPage } from "../storage/runtime-store.ts";
 
-import { ConnectionError } from "../../connection-service.ts";
+import { ConnectionError, defaultConnectionName } from "../../connection-service.ts";
 import { executeAction as executeProviderAction } from "../../core/execution.ts";
 import { safeRunLogError, summarizeForRunLog } from "./run-log-summary.ts";
 
@@ -103,7 +103,7 @@ export class ActionRunner {
             action,
             executor,
             input.input,
-            this.createExecutionContext(connection.getCredential, input.signal),
+            this.createExecutionContext(connection.getCredential, input.signal, action.service, input.connectionName),
           );
           if (input.signal?.aborted) {
             result = cancelledExecutionResult();
@@ -192,10 +192,23 @@ export class ActionRunner {
   private createExecutionContext(
     getCredential: ExecutionConnection["getCredential"],
     signal: AbortSignal | undefined,
+    service: string,
+    connectionName: string | undefined,
   ): ExecutionContext {
     const context: ExecutionContext = {
       getCredential,
       signal,
+      updateCredential: (patch) =>
+        this.options.connections
+          .updateCustomCredentialValues(service, connectionName ?? defaultConnectionName, patch)
+          .then((updated) => {
+            if (!updated) {
+              throw new ConnectionError(
+                "connection_not_found",
+                `${service} connection changed while updating its credential. Retry the action.`,
+              );
+            }
+          }),
     };
     if (this.options.transitFiles) {
       context.transitFiles = this.options.transitFiles;

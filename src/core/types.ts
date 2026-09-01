@@ -311,6 +311,15 @@ export type TransitFileWriter = TransitFileStore;
 export interface ExecutionContext {
   /** Resolve the credential currently configured for a provider service id. */
   getCredential(service: string): Promise<ResolvedCredential | undefined>;
+  /**
+   * Persist a partial update to the calling action's own `custom_credential`
+   * connection (e.g. writing a token obtained via a provider-native
+   * post-auth bootstrap step). Unlike `getCredential`, this has no `service`
+   * parameter: an executor can only ever update its own connection, never
+   * another provider's. Undefined when the runtime does not support
+   * credential writes for this execution (e.g. no active connection).
+   */
+  updateCredential?(patch: Record<string, string>): Promise<void>;
   /** Optional local temporary file storage for actions that produce downloadable files. */
   transitFiles?: TransitFileWriter;
   /** Optional cancellation signal propagated from the HTTP request or runner. */

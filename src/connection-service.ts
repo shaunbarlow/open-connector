@@ -327,6 +327,58 @@ export class ConnectionService {
     return this.createStoredConnectionSummary(provider, stored.id, connectionName, credential);
   }
 
+  /**
+   * Merge a partial value update into an existing `custom_credential`
+   * connection, e.g. writing a token obtained through a provider-native
+   * post-auth bootstrap action (RTM's frob exchange, similar future
+   * device-code-style providers). Deliberately scoped to `custom_credential`
+   * only: `api_key` has no secondary values worth updating post-connect, and
+   * `oauth2` already owns its lifecycle through `setOAuthCredential`/refresh.
+   *
+   * Revision-gated like the OAuth refresh path: returns false (rather than
+   * throwing) when the connection changed underneath the caller, so callers
+   * can surface a retryable error instead of silently clobbering a concurrent
+   * write.
+   */
+  async updateCustomCredentialValues(
+    service: string,
+    connectionName: string,
+    patch: Record<string, string>,
+  ): Promise<boolean> {
+    const provider = this.getAvailableProvider(service);
+    const auth = this.getCustomCredentialDefinition(provider);
+    const name = normalizeConnectionName(connectionName);
+    const stored = await this.store.get(service, name);
+    if (!stored || stored.credential.authType !== "custom_credential") {
+      throw new ConnectionError("connection_not_found", `${service} connection not found: ${name}.`);
+    }
+
+    const values = normalizeCredentialValues({
+      fields: auth.fields,
+      values: { ...stored.credential.values, ...patch },
+      createError: (message) => new ConnectionError("invalid_input", message),
+    });
+    const credential: ResolvedCredential = {
+      authType: "custom_credential",
+      values,
+      ...this.buildCredentialRuntimeData(
+        provider,
+        "custom_credential",
+        auth.fields,
+        values,
+        await this.validateCustomCredential(service, { values }),
+      ),
+    };
+
+    return this.store.updateCredential({
+      id: stored.id,
+      revision: stored.revision,
+      service,
+      connectionName: name,
+      credential,
+    });
+  }
+
   async setOAuthCredential(
     service: string,
     credential: Extract<ResolvedCredential, { authType: "oauth2" }>,
