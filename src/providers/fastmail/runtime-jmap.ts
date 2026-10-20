@@ -57,12 +57,12 @@ export const fastmailActionHandlers: Record<string, FastmailActionHandler> = {
   async get_thread(input, context) {
     const session = await getSession(context.apiKey, context.fetcher, context.signal);
     const accountId = account(session, mailCapability);
-    const query = await call(session, context, [
-      ["Email/query", { accountId, filter: { inThread: requiredString(input, "threadId") }, limit: 100 }, "query"],
+    const thread = await call(session, context, [
+      ["Thread/get", { accountId, ids: [requiredString(input, "threadId")] }, "thread"],
     ]);
-    const ids = stringList(methodArguments(query, "query").ids);
-    if (ids.length === 0) return { emails: [] };
-    const emails = await call(session, context, [["Email/get", { accountId, ids }, "emails"]]);
+    const emailIds = stringList(list(thread, "thread")[0]?.emailIds);
+    if (emailIds.length === 0) return { emails: [] };
+    const emails = await call(session, context, [["Email/get", { accountId, ids: emailIds }, "emails"]]);
     return { emails: list(emails, "emails") };
   },
   async set_email(input, context) {
