@@ -66,9 +66,7 @@ export const fastmailActionHandlers: Record<string, FastmailActionHandler> = {
     return { emails: list(emails, "emails") };
   },
   async set_email(input, context) {
-    const patch: Record<string, unknown> = {};
-    if (input.mailboxIds !== undefined) patch.mailboxIds = input.mailboxIds;
-    if (input.keywords !== undefined) patch.keywords = input.keywords;
+    const patch = emailPatch(input.mailboxIds, input.keywords);
     if (Object.keys(patch).length === 0) throw new ProviderRequestError(400, "Specify mailboxIds or keywords.");
     return updateEmail(context, requiredString(input, "emailId"), patch);
   },
@@ -76,14 +74,11 @@ export const fastmailActionHandlers: Record<string, FastmailActionHandler> = {
     const session = await getSession(context.apiKey, context.fetcher, context.signal);
     const accountId = account(session, mailCapability);
     const emailId = requiredString(input, "emailId");
-    const email = await getEmail(session, context, accountId, emailId);
     const patch: Record<string, unknown> = {};
-    const keywords = { ...objectOrEmpty(email.keywords) };
-    if (typeof input.isRead === "boolean") setKeyword(keywords, "$seen", input.isRead);
-    if (typeof input.isFlagged === "boolean") setKeyword(keywords, "$flagged", input.isFlagged);
-    if (input.isRead !== undefined || input.isFlagged !== undefined) patch.keywords = keywords;
+    if (typeof input.isRead === "boolean") patch["keywords/$seen"] = input.isRead ? true : null;
+    if (typeof input.isFlagged === "boolean") patch["keywords/$flagged"] = input.isFlagged ? true : null;
     const destination = optionalString(input.mailboxId);
-    if (destination) patch.mailboxIds = { [destination]: true };
+    if (destination) patch[`mailboxIds/${destination}`] = true;
     if (Object.keys(patch).length === 0)
       throw new ProviderRequestError(400, "Specify isRead, isFlagged, or mailboxId.");
     return updateEmailWithSession(session, context, accountId, emailId, patch);
@@ -96,8 +91,7 @@ export const fastmailActionHandlers: Record<string, FastmailActionHandler> = {
     const mailboxIds = { ...objectOrEmpty(email.mailboxIds) };
     const inboxId = await findRoleMailboxId(session, context, accountId, "inbox");
     if (!inboxId || !mailboxIds[inboxId]) return { updated: {} };
-    delete mailboxIds[inboxId];
-    return updateEmailWithSession(session, context, accountId, emailId, { mailboxIds });
+    return updateEmailWithSession(session, context, accountId, emailId, { [`mailboxIds/${inboxId}`]: null });
   },
   async create_draft(input, context) {
     const session = await getSession(context.apiKey, context.fetcher, context.signal);
@@ -382,9 +376,15 @@ function position(input: Record<string, unknown>): number {
 function numberOrZero(value: unknown): number {
   return typeof value === "number" ? value : 0;
 }
-function setKeyword(keywords: Record<string, unknown>, name: string, enabled: boolean): void {
-  if (enabled) keywords[name] = true;
-  else delete keywords[name];
+function emailPatch(mailboxIds: unknown, keywords: unknown): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const [id, enabled] of Object.entries(objectOrEmpty(mailboxIds))) {
+    patch[`mailboxIds/${id}`] = enabled ? true : null;
+  }
+  for (const [name, enabled] of Object.entries(objectOrEmpty(keywords))) {
+    patch[`keywords/${name}`] = enabled ? true : null;
+  }
+  return patch;
 }
 function replySubject(subject: string | undefined): string {
   return subject?.toLowerCase().startsWith("re:") ? subject : `Re: ${subject ?? ""}`;
