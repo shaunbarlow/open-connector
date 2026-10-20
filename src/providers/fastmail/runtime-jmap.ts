@@ -90,8 +90,12 @@ export const fastmailActionHandlers: Record<string, FastmailActionHandler> = {
     const email = await getEmail(session, context, accountId, emailId);
     const mailboxIds = { ...objectOrEmpty(email.mailboxIds) };
     const inboxId = await findRoleMailboxId(session, context, accountId, "inbox");
-    if (!inboxId || !mailboxIds[inboxId]) return { updated: {} };
-    return updateEmailWithSession(session, context, accountId, emailId, { [`mailboxIds/${inboxId}`]: null });
+    const archiveId = await findRoleMailboxId(session, context, accountId, "archive");
+    if (!inboxId || !archiveId || !mailboxIds[inboxId]) return { updated: {} };
+    return updateEmailWithSession(session, context, accountId, emailId, {
+      [`mailboxIds/${archiveId}`]: true,
+      [`mailboxIds/${inboxId}`]: null,
+    });
   },
   async create_draft(input, context) {
     const session = await getSession(context.apiKey, context.fetcher, context.signal);
